@@ -167,7 +167,6 @@ namespace eval netdgram {
 			#} on ok {} {
 			#	puts stderr "Enabled TCP_NODELAY on socket"
 			#}
-			puts "[self] initialized socket to: ($socket)"
 		}
 
 		#>>>
