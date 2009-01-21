@@ -4,13 +4,13 @@ package require Tcl 8.6
 package require TclOO
 
 tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm]]
-#package require netdgram::tcp_coroutine
+#package require netdgram::tcp
 package require netdgram
 
 #netdgram::ConnectionMethod::TCP_coroutine create cm_tcp_coroutine
 
-#set con	[cm_tcp_coroutine connect localhost 1234]
-set con		[netdgram::connect_uri "tcp_coroutine://localhost:1234"]
+#set con	[cm_tcp connect localhost 1234]
+set con		[netdgram::connect_uri "tcp://localhost:1234"]
 #set con		[netdgram::connect_uri "uds:///tmp/example.socket"]
 netdgram::queue create queue
 queue attach $con

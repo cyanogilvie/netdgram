@@ -4,17 +4,17 @@ package require Tcl 8.6
 package require TclOO 0.6
 
 tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm]]
-#package require netdgram::tcp_coroutine
+#package require netdgram::tcp
 package require netdgram
 
 namespace path ::oo
 
 #netdgram::ConnectionMethod::TCP_coroutine create cm_tcp_coroutine
 
-#set listener	[cm_tcp_coroutine listen 1234]
-set listener	[netdgram::listen_uri "tcp_coroutine://*:1234"]
+#set listener	[cm_tcp listen 1234]
+set listener	[netdgram::listen_uri "tcp://*:1234"]
 #set listener	[netdgram::listen_uri "uds:///tmp/example.socket"]
-#set listener	[netdgram::listen_uri "tcp_coroutine://127.0.0.1:1234"]
+#set listener	[netdgram::listen_uri "tcp://127.0.0.1:1234"]
 
 oo::objdefine $listener forward accept apply {
 	{con args} {
