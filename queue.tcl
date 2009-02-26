@@ -67,7 +67,7 @@ namespace eval netdgram {
 
 			set msgid		[incr msgid_seq]
 			#dict lappend queues $target [list $msgid [zlib deflate [encoding convertto utf-8 $msg] 3]]
-			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg]]
+			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args]
 			$rawcon data_waiting 1
 		}
 
@@ -105,7 +105,7 @@ namespace eval netdgram {
 
 			set new	[lassign [dict get $queues $source] next]
 
-			lassign $next msgid msg
+			lassign $next msgid msg msgargs
 			if {$max_payload < [string length $msg]} {
 				set is_tail	0
 
@@ -114,6 +114,8 @@ namespace eval netdgram {
 				set new	[linsert $new 0 [list $msgid $remaining_msg]]
 			} else {
 				set is_tail	1
+
+				my sent {*}$msgargs
 
 				set fragment		$msg
 			}
@@ -127,6 +129,10 @@ namespace eval netdgram {
 				$rawcon data_waiting 0
 			}
 			return [list $msgid $is_tail $fragment]
+		}
+
+		#>>>
+		method sent {args} { #<<<
 		}
 
 		#>>>

@@ -1,0 +1,48 @@
+tm "netdgram" {
+	summary "Modular network datagram package"
+
+	description {
+		Provides a Tcl package for datagram based IPC.  Inbound and outbound
+		connections are specified in URI form, allowing modules to be added
+		(registering new URI scheme handlers) to support new transports.
+
+		Currently TCP is supported, but UDP, UDS (unix domain sockets), SCTP
+		as well as more complex transports such as multipath failover TCP
+		are envisioned.
+
+		The API presented is transport agnostic, and all transports are fully
+		specifiable with a URI format connection string, so the choice of
+		transport can easily be deferred to the user at runtime.
+	}
+
+	version 0.4
+
+	requires {
+		cflib
+		sop
+	}
+
+	files {
+		connectionmethod.tcl
+		*.tcl
+	}
+
+	platform tcl
+}
+
+foreach fn [glob -nocomplain -type f [file join connectionmethods *.tcl]] {
+	tm [file join "netdgram" [file rootname [file tail $fn]]] {
+		version 0.3
+
+		requires {
+			netdgram
+		}
+
+		files [list $fn]
+
+		platform tcl
+	}
+}
+
+
+# vim: ft=tcl
