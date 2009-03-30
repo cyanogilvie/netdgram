@@ -160,13 +160,22 @@ namespace eval netdgram {
 			set cl_ip	$a_cl_ip
 			set cl_port	$a_cl_port
 			set data_waiting	0
-			#try {
-			#	chan configure $socket -nodelay 1
-			#} on error {errmsg options} {
-			#	puts stderr "Couldn't set TCP_NODELAY on socket: $errmsg"
-			#} on ok {} {
-			#	puts stderr "Enabled TCP_NODELAY on socket"
-			#}
+			try {
+				try {
+					package require sockopt
+				} on error {errmsg options} {
+					#puts stderr "Could not load sockopts: $errmsg"
+				} on ok {} {
+					sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
+					sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
+					sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
+					sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
+					sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
+				}
+			} on error {errmsg options} {
+				puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
+				return -options $options $errmsg
+			}
 		}
 
 		#>>>

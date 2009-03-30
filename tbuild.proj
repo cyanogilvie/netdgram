@@ -15,7 +15,7 @@ tm "netdgram" {
 		transport can easily be deferred to the user at runtime.
 	}
 
-	version 0.4
+	version 0.5
 
 	requires {
 		cflib
@@ -32,7 +32,7 @@ tm "netdgram" {
 
 foreach fn [glob -nocomplain -type f [file join connectionmethods *.tcl]] {
 	tm [file join "netdgram" [file rootname [file tail $fn]]] {
-		version 0.3
+		version 0.5
 
 		requires {
 			netdgram
