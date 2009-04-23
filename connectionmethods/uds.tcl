@@ -9,6 +9,9 @@ namespace eval netdgram {
 
 		constructor {} { #<<<
 			if {[self next] ne {}} {next}
+			if {![package vsatisfies [info patchlevel] 8.6-]} {
+				error "Coroutines require Tcl 8.6"
+			}
 
 			package require unix_sockets
 		}
@@ -23,6 +26,12 @@ namespace eval netdgram {
 			set path	[dict get $parts path]
 			set flags	[dict get $parts query]
 			return [netdgram::listener::uds new $path $flags]
+			oo::objdefine $listen forward human_id apply {
+				{human_id} {
+					set human_id
+				}
+			} "uri([$uri_obj encoded]) pid([pid])"
+			return $listen
 		}
 
 		#>>>
@@ -35,7 +44,14 @@ namespace eval netdgram {
 				set path	[dict get $parts path]
 				set flags	[dict get $parts query]
 				set socket	[unix_sockets::connect $path]
-				return [netdgram::connection::uds new $socket $flags]
+
+				set con	[netdgram::connection::uds new $socket $flags]
+				oo::objdefine $con forward human_id apply {
+					{human_id} {
+						set human_id
+					}
+				} "uri([$uri_obj encoded]) pid([pid]) con($con)"
+				return $con
 			} on error {errmsg options} {
 				if {[info exists con] && [info object isa object $con]} {
 					$con destroy
@@ -87,6 +103,12 @@ namespace eval netdgram {
 				set con		[netdgram::connection::uds new \
 						$socket $flags]
 
+				oo::objdefine $con forward human_id apply {
+					{human_id} {
+						set human_id
+					}
+				} "con($con) on [my human_id]"
+
 				my accept $con
 			} on error {errmsg options} {
 				puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
@@ -94,8 +116,21 @@ namespace eval netdgram {
 					$con destroy
 					unset con
 				}
-			} on ok {res options} {
+				return
+			}
+
+			if {![info exists con] || ![info object is object $con]} {
+				# $con died, most likely killed by the accept handler
+				return
+			}
+			try {
 				$con activate
+			} on error {errmsg options} {
+				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
+				if {[info object is object $con]} {
+					$con destroy
+					unset con
+				}
 			}
 		}
 
@@ -118,7 +153,7 @@ namespace eval netdgram {
 
 			set socket	$a_socket
 			set data_waiting	0
-			puts "[self] initialized socket to: ($socket)"
+			#puts "[self] initialized socket to: ($socket)"
 		}
 
 		#>>>
@@ -139,16 +174,27 @@ namespace eval netdgram {
 		method activate {} { #<<<
 			set coro	"::consumer_[string map {:: _} [self]]"
 			coroutine $coro my _consumer
+			if {![info exists socket] || $socket ni [chan names]} {
+				throw {socket_collapsed} "Socket collapsed"
+			}
 			chan event $socket readable [list $coro]
 		}
 
 		#>>>
 		method send {msg} { #<<<
 			set data_len	[string length $msg]
-			chan puts $socket $data_len
-			chan puts -nonewline $socket $msg
-			puts "writing msg: ($msg) to $socket"
-			chan flush $socket
+			try {
+				chan configure $socket \
+						-buffering full
+				chan puts $socket $data_len
+				chan puts -nonewline $socket $msg
+				#puts "writing msg: ($msg) to $socket"
+				chan flush $socket
+			} on error {errmsg options} {
+				puts stderr "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
+				my destroy
+				return
+			}
 		}
 
 		#>>>
@@ -174,14 +220,11 @@ namespace eval netdgram {
 							-translation binary
 
 					while {1} {
-					puts "FOO"
 						set line	[gets $socket]
-					puts "BAR"
 						if {[chan eof $socket]} {throw {close} ""}
 						if {![chan blocked $socket]} break
 						yield
 					}
-					puts "BAZ"
 
 					lassign $line payload_bytecount
 					set remaining	$payload_bytecount
@@ -221,6 +264,12 @@ namespace eval netdgram {
 
 		#>>>
 		method _notify_writable {} { #<<<
+			# Also called for eof
+			if {[chan eof $socket]} {
+				my destroy
+				return
+			}
+
 			try {
 				my writable
 			} on error {errmsg options} {
