@@ -61,6 +61,7 @@ namespace eval netdgram {
 					close $socket
 					unset socket
 				}
+				return -options $options $errmsg
 			}
 		}
 
@@ -82,6 +83,13 @@ namespace eval netdgram {
 			if {[self next] ne {}} {next}
 
 			set flags $a_flags
+			set dir	[file normalize [file dirname $path]]
+			if {![file exists $dir]} {
+				file mkdir $dir
+			}
+			if {![file isdirectory $dir]} {
+				error "Requested socket path parent exists but is not a directory"
+			}
 			set listen	[unix_sockets::listen $path [namespace code {my _accept}]]
 		}
 

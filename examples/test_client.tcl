@@ -1,17 +1,18 @@
-#!/usr/bin/env tclsh8.6
+#!/usr/bin/env cfkit8.6
 
-package require Tcl 8.6
-package require TclOO
+tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm tcl]]
+tcl::tm::path add [file normalize [file join ~ .tbuild repo tm tcl]]
 
-tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm]]
+lappend auto_path [file normalize [file join ~ .tbuild repo pkg linux-glibc2.3-ix86]]
+
 #package require netdgram::tcp
 package require netdgram
 
 #netdgram::ConnectionMethod::TCP_coroutine create cm_tcp_coroutine
 
 #set con	[cm_tcp connect localhost 1234]
-set con		[netdgram::connect_uri "tcp://localhost:1234"]
-#set con		[netdgram::connect_uri "uds:///tmp/example.socket"]
+#set con		[netdgram::connect_uri "tcp://localhost:1234"]
+set con		[netdgram::connect_uri "uds:///tmp/example.socket"]
 netdgram::queue create queue
 queue attach $con
 
@@ -35,7 +36,9 @@ oo::objdefine queue method pick {queues} {
 #}
 proc myreceive {foo msg} {
 	puts "myGot msg: ($foo) ($msg)"
-	exit
+	if {[incr ::got] == 5} {
+		exit
+	}
 }
 oo::objdefine queue forward receive myreceive thisisfoo
 
@@ -55,5 +58,5 @@ queue enqueue {hello, world5}
 #$con activate
 #$con send {hello, world}
 
-vwait ::forever
+coroutine coro_main vwait ::forever
 

@@ -259,6 +259,7 @@ namespace eval netdgram {
 				}
 			} trap {close} {res options} {
 				# Nothing to do.  destructor takes care of it
+				#puts stderr "Closing [self] (by falling through to destructor)"
 			} on error {errmsg options} {
 				puts stderr "Unhandled error in consumer: $errmsg"
 				array set e $options
@@ -276,16 +277,21 @@ namespace eval netdgram {
 			set parts		[lrange $parts 0 end-1]
 			foreach part $parts {
 				if {[string trim $part] eq "<policy-file-request/>"} {
+					puts stderr "[self] Saw policy request, sending policy"
 					my _send_policy
 					throw {close} ""
 				}
 				if {!($accepted)} {
 					try {
+						#puts stderr "[self] seeking acceptance"
 						uplevel #0 $onaccept [self] $cl_ip $cl_port
 					} on error {errmsg options} {
 						puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 						my destroy
 						return
+					} on ok {} {
+						#puts stderr "[self] feels accepted"
+						set accepted	1
 					}
 				}
 				if {$part eq "ready"} {continue}

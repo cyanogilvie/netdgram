@@ -16,7 +16,8 @@ tm: *.tcl connectionmethods/*.tcl
 
 install: all
 	#./install
-	rsync -avP tm/* /tcl8.6/lib/tcl8/8.6
+	#rsync -avP tm/* /tcl8.6/lib/tcl8/8.6
+	rsync -avP tm/* ../tm
 
 clean:
 	-rm -rf tm
