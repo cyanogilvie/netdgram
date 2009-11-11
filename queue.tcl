@@ -69,6 +69,7 @@ namespace eval netdgram {
 			#dict lappend queues $target [list $msgid [zlib deflate [encoding convertto utf-8 $msg] 3]]
 			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args]
 			$rawcon data_waiting 1
+			return $target
 		}
 
 		#>>>

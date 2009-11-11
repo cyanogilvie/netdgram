@@ -61,6 +61,8 @@ namespace eval netdgram {
 					close $socket
 					unset socket
 				}
+
+				return -options $options $errmsg
 			}
 		}
 
@@ -242,7 +244,16 @@ namespace eval netdgram {
 							-translation binary
 
 					while {1} {
-						set line	[gets $socket]
+						try {
+							set line	[gets $socket]
+						} trap {POSIX EHOSTUNREACH} {errmsg options} {
+							puts stderr "Host unreachable from $cl_ip:$cl_port
+							"
+							throw {close} "Host unreachable from $cl_ip:$cl_port"
+						} trap {POSIX ETIMEDOUT} {errmsg options} {
+							puts stderr "Host timeout from $cl_ip:$cl_port"
+							throw {close} "Host timeout from $cl_ip:$cl_port"
+						}
 						if {[chan eof $socket]} {throw {close} ""}
 						if {![chan blocked $socket]} break
 						#puts stderr "yielding waiting for the control line"
@@ -275,12 +286,16 @@ namespace eval netdgram {
 						incr remaining -$chunklen
 					}
 
-					my received $payload
+					# Prevent message handling code higher up the stack
+					# from yielding our consumer coroutine
+					#coroutine coro_received_[incr ::coro_seq] \
+					#		my received $payload
+					after idle	[namespace code [list my received $payload]]
 				}
 			} trap {close} {res options} {
 				# Nothing to do.  destructor takes care of it
 			} on error {errmsg options} {
-				puts stderr "Unhandled error in consumer: $errmsg"
+				puts stderr "Unhandled error in consumer for ($cl_ip:$cl_port): $errmsg"
 				array set e $options
 				parray e
 				puts stderr "[dict get $options -errorinfo]"

@@ -61,6 +61,7 @@ namespace eval netdgram {
 					close $socket
 					unset socket
 				}
+
 				return -options $options $errmsg
 			}
 		}
@@ -119,7 +120,7 @@ namespace eval netdgram {
 
 				my accept $con
 			} on error {errmsg options} {
-				puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
+				puts stderr "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
 					$con destroy
 					unset con
@@ -259,7 +260,10 @@ namespace eval netdgram {
 						incr remaining -$chunklen
 					}
 
-					my received $payload
+					# Prevent message handling code higher up the stack
+					# from yielding our consumer coroutine
+					coroutine coro_received_[incr ::coro_seq] \
+							my received $payload
 				}
 			} trap {close} {res options} {
 				# Nothing to do.  destructor takes care of it
