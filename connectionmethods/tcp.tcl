@@ -41,12 +41,12 @@ namespace eval netdgram {
 				switch -- [llength $params] {
 					0 {
 						set host	"localhost"
-						set port	5300
+						set port	[my default_port]
 					}
 
 					1 {
 						set host	[lindex $params 0]
-						set port	5300
+						set port	[my default_port]
 					}
 
 					2 {
@@ -55,7 +55,7 @@ namespace eval netdgram {
 							set host	"localhost"
 						}
 						if {$port eq ""} {
-							set port	5300
+							set port	[my default_port]
 						}
 					}
 
@@ -85,6 +85,12 @@ namespace eval netdgram {
 
 				return -options $options $errmsg
 			}
+		}
+
+		#>>>
+		method default_port {} { #<<<
+			# Override this to implement default port behaviour
+			error "No default port defined, must be specified in the URI"
 		}
 
 		#>>>
