@@ -16,7 +16,7 @@ namespace eval netdgram {
 
 		#>>>
 
-		method listen {uri_obj} { # <<<
+		method listen {uri_obj} { #<<<
 			set parts	[$uri_obj as_dict]
 			set params	[split [dict get $parts authority] :]
 			if {[llength $params] != 2} {
@@ -34,14 +34,35 @@ namespace eval netdgram {
 		}
 
 		#>>>
-		method connect {uri_obj} {	;# <<<
+		method connect {uri_obj} { #<<<
 			try {
 				set parts	[$uri_obj as_dict]
 				set params	[split [dict get $parts authority] :]
-				if {[llength $params] != 2} {
-					error "Invalid connection parameters, expecting [self class]://ip:port"
+				switch -- [llength $params] {
+					0 {
+						set host	"localhost"
+						set port	5300
+					}
+
+					1 {
+						set host	[lindex $params 0]
+						set port	5300
+					}
+
+					2 {
+						lassign $params host port
+						if {$host eq ""} {
+							set host	"localhost"
+						}
+						if {$port eq ""} {
+							set port	5300
+						}
+					}
+
+					default {
+						error "Invalid connection parameters, expecting [self class]://ip:port"
+					}
 				}
-				lassign $params host port
 				set flags	[dict get $parts query]
 				set socket	[socket $host $port]
 
@@ -94,7 +115,9 @@ namespace eval netdgram {
 		#>>>
 		destructor { #<<<
 			if {[info exists listen]} {
-				close $listen
+				if {$listen in [chan names]} {
+					chan close $listen
+				}
 				unset listen
 			}
 
@@ -116,7 +139,7 @@ namespace eval netdgram {
 
 				my accept $con $cl_ip $cl_port
 			} on error {errmsg options} {
-				puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
+				puts stderr "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
 					$con destroy
 					unset con
@@ -182,8 +205,10 @@ namespace eval netdgram {
 
 		#>>>
 		destructor { #<<<
-			if {[info exists socket] && $socket in [chan names]} {
-				close $socket
+			if {[info exists socket]} {
+				if {$socket in [chan names]} {
+					close $socket
+				}
 				unset socket
 			}
 
@@ -288,9 +313,9 @@ namespace eval netdgram {
 
 					# Prevent message handling code higher up the stack
 					# from yielding our consumer coroutine
-					#coroutine coro_received_[incr ::coro_seq] \
-					#		my received $payload
-					after idle	[namespace code [list my received $payload]]
+					coroutine coro_received_[incr ::coro_seq] \
+							my received $payload
+					#after idle	[namespace code [list my received $payload]]
 				}
 			} trap {close} {res options} {
 				# Nothing to do.  destructor takes care of it
