@@ -18,7 +18,7 @@ namespace eval netdgram {
 
 		#>>>
 
-		method listen {uri_obj} { # <<<
+		method listen {uri_obj} { #<<<
 			set parts	[$uri_obj as_dict]
 			if {[dict get $parts authority] ne ""} {
 				error "Unix domain sockets can only be local"
@@ -35,7 +35,7 @@ namespace eval netdgram {
 		}
 
 		#>>>
-		method connect {uri_obj} {	;# <<<
+		method connect {uri_obj} { #<<<
 			try {
 				set parts	[$uri_obj as_dict]
 				if {[dict get $parts authority] ne ""} {
@@ -98,10 +98,11 @@ namespace eval netdgram {
 		destructor { #<<<
 			if {[info exists listen]} {
 				if {$listen in [chan names]} {
-					close $listen
+					chan close $listen
 				}
 				unset listen
 			}
+
 			if {[self next] ne {}} {next}
 		}
 
@@ -181,11 +182,11 @@ namespace eval netdgram {
 		#>>>
 
 		method activate {} { #<<<
-			set coro	"::consumer_[string map {:: _} [self]]"
-			coroutine $coro my _consumer
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
+			set coro	"::consumer_[string map {:: _} [self]]"
+			coroutine $coro my _consumer
 			chan event $socket readable [list $coro]
 		}
 
