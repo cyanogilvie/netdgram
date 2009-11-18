@@ -64,6 +64,8 @@ namespace eval netdgram {
 					close $socket
 					unset socket
 				}
+
+				return -options $options $errmsg
 			}
 		}
 
@@ -295,7 +297,11 @@ namespace eval netdgram {
 					}
 				}
 				if {$part eq "ready"} {continue}
-				my received $part
+
+				# Prevent message handling code higher up the stack
+				# from yielding our consumer coroutine
+				coroutine coro_received_[incr ::coro_seq] \
+						my received $part
 			}
 		}
 
