@@ -19,10 +19,31 @@ namespace eval netdgram {
 		method listen {uri_obj} { #<<<
 			set parts	[$uri_obj as_dict]
 			set params	[split [dict get $parts authority] :]
-			if {[llength $params] != 2} {
-				error "Invalid connection parameters, expecting [self class]://ip:port specify ip as \"*\" to bind to all interfaces"
+			switch -- [llength $params] {
+				0 {
+					set host	"*"
+					set port	[my default_port]
+				}
+
+				1 {
+					set host	[lindex $params 0]
+					set port	[my default_port]
+				}
+
+				2 {
+					lassign $params host port
+					if {$host eq ""} {
+						set host	"*"
+					}
+					if {$port eq ""} {
+						set port	[my default_port]
+					}
+				}
+
+				default {
+					error "Invalid connection parameters, expecting [self class]://ip:port"
+				}
 			}
-			lassign $params host port
 			set flags	[dict get $parts query]
 			set listen [netdgram::listener::tcp new $host $port $flags]
 			oo::objdefine $listen forward human_id apply {
@@ -191,6 +212,12 @@ namespace eval netdgram {
 			set cl_ip	$a_cl_ip
 			set cl_port	$a_cl_port
 			set data_waiting	0
+
+			chan configure $socket \
+					-blocking 0 \
+					-buffering line \
+					-translation binary
+
 			try {
 				try {
 					package require sockopt
@@ -237,10 +264,10 @@ namespace eval netdgram {
 		method send {msg} { #<<<
 			set data_len	[string length $msg]
 			try {
-				chan configure $socket \
-						-buffering full
-				chan puts $socket $data_len
-				chan puts -nonewline $socket $msg
+				#chan configure $socket -buffering full
+				#chan puts $socket $data_len
+				#chan puts -nonewline $socket $msg
+				chan puts -nonewline $socket "$data_len\n$msg"
 				#puts "writing msg: ($msg) to $socket"
 				chan flush $socket
 			} on error {errmsg options} {
@@ -269,14 +296,11 @@ namespace eval netdgram {
 		method _consumer {} { #<<<
 			try {
 				while {1} {
-					chan configure $socket \
-							-blocking 0 \
-							-buffering line \
-							-translation binary
-
 					while {1} {
+						chan configure $socket -buffering line
+
 						try {
-							set line	[gets $socket]
+							gets $socket
 						} trap {POSIX EHOSTUNREACH} {errmsg options} {
 							puts stderr "Host unreachable from $cl_ip:$cl_port
 							"
@@ -284,7 +308,8 @@ namespace eval netdgram {
 						} trap {POSIX ETIMEDOUT} {errmsg options} {
 							puts stderr "Host timeout from $cl_ip:$cl_port"
 							throw {close} "Host timeout from $cl_ip:$cl_port"
-						}
+						} on ok {line} {}
+
 						if {[chan eof $socket]} {throw {close} ""}
 						if {![chan blocked $socket]} break
 						#puts stderr "yielding waiting for the control line"
@@ -298,12 +323,10 @@ namespace eval netdgram {
 						throw {close} ""
 					}
 
-					chan configure $socket \
-							-blocking 0 \
-							-buffering none \
-							-translation binary
 					set payload	""
 					while {$remaining > 0} {
+						chan configure $socket -buffering none
+
 						set chunk	[chan read $socket $remaining]
 						if {[chan eof $socket]} {throw {close} ""}
 						set chunklen	[string length $chunk]

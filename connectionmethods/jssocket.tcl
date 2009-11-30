@@ -197,11 +197,11 @@ namespace eval netdgram {
 		#>>>
 
 		method activate {} { #<<<
+			set coro	"::consumer_[string map {:: _} [self]]"
+			coroutine $coro my _consumer
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
-			set coro	"::consumer_[string map {:: _} [self]]"
-			coroutine $coro my _consumer
 			chan event $socket readable [list $coro]
 		}
 
@@ -210,6 +210,7 @@ namespace eval netdgram {
 			try {
 				chan configure $socket \
 						-buffering full
+				set msg	[binary encode base64 $msg]
 				append msg "\x0"
 				chan puts -nonewline $socket $msg
 				#puts stderr "Sending null terminated packet: ($msg)"
@@ -301,7 +302,7 @@ namespace eval netdgram {
 				# Prevent message handling code higher up the stack
 				# from yielding our consumer coroutine
 				coroutine coro_received_[incr ::coro_seq] \
-						my received $part
+						my received [binary decode base64 $part]
 			}
 		}
 
