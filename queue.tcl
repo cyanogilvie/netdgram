@@ -112,7 +112,7 @@ namespace eval netdgram {
 
 				set fragment		[string range $msg 0 $max_payload-1]
 				set remaining_msg	[string range $msg $max_payload end]
-				set new	[linsert $new 0 [list $msgid $remaining_msg]]
+				set new	[linsert $new 0 [list $msgid $remaining_msg $msgargs]]
 			} else {
 				set is_tail	1
 
