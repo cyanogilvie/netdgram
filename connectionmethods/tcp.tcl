@@ -342,8 +342,12 @@ namespace eval netdgram {
 
 					# Prevent message handling code higher up the stack
 					# from yielding our consumer coroutine
-					coroutine coro_received_[incr ::coro_seq] \
-							my received $payload
+					# Needs the "after idle" to avoid trying to re-enter this
+					# coroutine if the callback enters vwait before returning,
+					# and another packet arrives that tries to wake up this
+					# consumer coro again
+					after idle [list coroutine coro_received_[incr ::coro_seq] \
+							{*}[namespace code [list my received $payload]]]
 					#after idle	[namespace code [list my received $payload]]
 				}
 			} trap {close} {res options} {
