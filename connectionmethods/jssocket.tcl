@@ -37,7 +37,7 @@ namespace eval netdgram {
 		}
 
 		#>>>
-		method connect {uri_obj} {	;# <<<
+		method connect {uri_obj} { # <<<
 			try {
 				set parts	[$uri_obj as_dict]
 				set params	[split [dict get $parts authority] :]
@@ -107,6 +107,7 @@ namespace eval netdgram {
 		#>>>
 
 		method _accept {socket cl_ip cl_port} { #<<<
+			puts stderr "Accepting socket ($socket) from ($cl_ip:$cl_port)"
 			try {
 				set con		[netdgram::connection::jssocket new \
 						$socket $cl_ip $cl_port $flags [namespace code {my accept}]]
@@ -130,6 +131,11 @@ namespace eval netdgram {
 			}
 			try {
 				$con activate
+			} trap {socket_collapsed} {errmsg options} {
+				if {[info object is object $con]} {
+					$con destroy
+					unset con
+				}
 			} on error {errmsg options} {
 				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
 				if {[info object is object $con]} {
@@ -185,8 +191,10 @@ namespace eval netdgram {
 
 		#>>>
 		destructor { #<<<
+			#puts stderr "Destroying [self]"
 			if {[info exists socket] && $socket in [chan names]} {
-				close $socket
+				#puts stderr "closing socket ($socket) in destructor"
+				chan close $socket
 				unset socket
 			}
 
@@ -269,6 +277,7 @@ namespace eval netdgram {
 				parray e
 				puts stderr "[dict get $options -errorinfo]"
 			} finally {
+				#puts stderr "in finally clause (about to call my destroy)"
 				my destroy
 			}
 		}
@@ -282,6 +291,20 @@ namespace eval netdgram {
 				if {[string trim $part] eq "<policy-file-request/>"} {
 					puts stderr "[self] Saw policy request, sending policy"
 					my _send_policy
+					chan event $socket readable [list apply {
+						{oldself oldsocket} {
+							puts stderr "Got read for undead socket ($oldself) old socket: $oldsocket [expr {$oldsocket in [chan names] ? "exists" : "does not exist"}]"
+							if {$oldsocket in [chan names]} {
+								if {[chan eof $oldsocket]} {
+									puts stderr "\tEOF"
+									chan close $oldsocket
+								} else {
+									set dat	[chan read $oldsocket]
+									puts stderr "\tGot [string length $dat] bytes:\n$dat"
+								}
+							}
+						}
+					} [self] $socket]
 					throw {close} ""
 				}
 				if {!($accepted)} {
@@ -301,8 +324,12 @@ namespace eval netdgram {
 
 				# Prevent message handling code higher up the stack
 				# from yielding our consumer coroutine
-				coroutine coro_received_[incr ::coro_seq] \
-						my received [binary decode base64 $part]
+				# Needs the "after idle" to avoid trying to re-enter this
+				# coroutine if the callback enters vwait before returning,
+				# and another packet arrives that tries to wake up this
+				# consumer coro again
+				after idle [list coroutine coro_received_[incr ::coro_seq] \
+						{*}[namespace code [list my received [binary decode base64 $part]]]]
 			}
 		}
 
