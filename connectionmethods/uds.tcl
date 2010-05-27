@@ -91,6 +91,9 @@ namespace eval netdgram {
 			if {![file isdirectory $dir]} {
 				error "Requested socket path parent exists but is not a directory"
 			}
+			if {[file exists $path] && (![file writable $path] || ![file writable $dir])} {
+				error "Requested socket path \"$path\" exists but is not writable by us"
+			}
 			set listen	[unix_sockets::listen $path [namespace code {my _accept}]]
 		}
 

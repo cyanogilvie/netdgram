@@ -1,3 +1,5 @@
+set version	0.6.1
+
 tm "netdgram" {
 	summary "Modular network datagram package"
 
@@ -15,7 +17,7 @@ tm "netdgram" {
 		transport can easily be deferred to the user at runtime.
 	}
 
-	version 0.5.6
+	version $::version
 
 	requires {
 		cflib
@@ -32,7 +34,7 @@ tm "netdgram" {
 
 foreach fn [glob -nocomplain -type f [file join connectionmethods *.tcl]] {
 	tm [file join "netdgram" [file rootname [file tail $fn]]] {
-		version 0.5.6
+		version $::version
 
 		requires {
 			netdgram

@@ -13,6 +13,7 @@ namespace eval netdgram {
 			defrag_buf
 			target_payload_size
 			roundrobin
+			write_combining
 		}
 
 		constructor {} { #<<<
@@ -22,6 +23,7 @@ namespace eval netdgram {
 			set msgid_seq	0
 			set target_payload_size		10000
 			set roundrobin				{}
+			set write_combining			0
 			#set target_payload_size	1400
 			#set target_payload_size	8
 		}
@@ -129,7 +131,7 @@ namespace eval netdgram {
 			if {[dict size $queues] == 0} {
 				$rawcon data_waiting 0
 			}
-			return [list $msgid $is_tail $fragment]
+			list $msgid $is_tail $fragment
 		}
 
 		#>>>
@@ -158,13 +160,13 @@ namespace eval netdgram {
 		#>>>
 		method _receive_raw {msg} { #<<<
 			set p	0
-			while {$p <= [string length $msg]} {
+			while {$p < [string length $msg]} {
 				set idx	[string first "\n" $msg $p]
 				set head	[string range $msg $p $idx-1]
 				lassign $head msgid is_tail fragment_len
 				set end_idx	[expr {$idx + $fragment_len + 1}]
 				set frag	[string range $msg $idx+1 $end_idx]
-				set p		[expr {$end_idx + 1}]
+				set p		$end_idx
 				my _receive_fragment $msgid $is_tail $frag
 			}
 		}
@@ -178,18 +180,38 @@ namespace eval netdgram {
 		method _rawcon_writable {} { #<<<
 			set remaining_target	$target_payload_size
 
-			try {
-				lassign [my dequeue $remaining_target] \
-						msgid is_tail fragment
+			if {$write_combining} {
+				set payload	""
 
-				set fragment_len	[string length $fragment]
-				set payload_portion	"$msgid $is_tail $fragment_len\n$fragment"
-				incr remaining_target -$fragment_len
-				append payload	$payload_portion
+				try {
+					while {$remaining_target > 0} {
+						lassign [my dequeue $remaining_target] \
+								msgid is_tail fragment
 
-				$rawcon send $payload
-			} trap {queue_empty} {} {
-				return
+						set fragment_len	[string length $fragment]
+						set payload_portion	"$msgid $is_tail $fragment_len\n$fragment"
+						incr remaining_target -$fragment_len
+						append payload	$payload_portion
+					}
+				} trap {queue_empty} {} {}
+
+				if {[string length $payload] > 0} {
+					$rawcon send $payload
+				}
+			} else {
+				try {
+					lassign [my dequeue $remaining_target] \
+							msgid is_tail fragment
+
+					set fragment_len	[string length $fragment]
+					set payload_portion	"$msgid $is_tail $fragment_len\n$fragment"
+					incr remaining_target -$fragment_len
+					append payload	$payload_portion
+
+					$rawcon send $payload
+				} trap {queue_empty} {} {
+					return
+				}
 			}
 		}
 
