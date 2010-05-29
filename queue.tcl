@@ -21,10 +21,14 @@ namespace eval netdgram {
 			set queues		[dict create]
 			set defrag_buf	[dict create]
 			set msgid_seq	0
-			set target_payload_size		10000
+			#set target_payload_size		10000
 			set roundrobin				{}
 			set write_combining			0
-			#set target_payload_size	1400
+
+			# worked out to 1500 MTU and msgid up to 9,999,999,999 or 14.63
+			# days of full frames on a 100Mb network
+			set target_payload_size		[expr {1447 - 10}]
+
 			#set target_payload_size	8
 		}
 
