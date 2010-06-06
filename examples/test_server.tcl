@@ -1,41 +1,43 @@
-#!/usr/bin/env cfkit8.6
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
 
 tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm tcl]]
-tcl::tm::path add [file normalize [file join ~ .tbuild repo tm tcl]]
 
-lappend auto_path [file normalize [file join ~ .tbuild repo pkg linux-glibc2.3-ix86]]
+package require netdgram 0.5.4
+package require cflib
 
-#package require netdgram::tcp
-package require netdgram
+cflib::config create cfg $argv {
+	variable uri	"tcp://"
+}
 
-namespace path ::oo
+package require netdgram::tcp
+oo::define netdgram::connectionmethod::tcp method default_port {} {return 4300}
 
-#netdgram::ConnectionMethod::TCP_coroutine create cm_tcp_coroutine
+set listener	[netdgram::listen_uri [cfg get uri]]
 
-#set listener	[cm_tcp listen 1234]
-#set listener	[netdgram::listen_uri "tcp://*:1234"]
-set listener	[netdgram::listen_uri "uds:///tmp/example.socket"]
-#set listener	[netdgram::listen_uri "tcp://127.0.0.1:1234"]
+oo::objdefine $listener method accept {con args} {
+	puts "Accept: ($con)"
 
-oo::objdefine $listener forward accept apply {
-	{con args} {
-		puts "Accept: ($con)"
+	set queue	[netdgram::queue new]
+	oo::objdefine $queue method assign {msg} {
+		# Returns the target queue name
+		set choices	{foo bar baz}
+		set target	[lindex $choices [expr {int(rand() * [llength $choices])}]]
+		puts "Queueing to $target"
+		return $target
+	}
 
-		set queue	[netdgram::queue new]
-		$queue attach $con
-		objdefine $queue method receive {msg} {
-			puts "Got msg from ([self]): ($msg)"
-			my enqueue "echo: ($msg)"
-		}
+	oo::objdefine $queue method pick {queues} {
+		set source	[lindex $queues [expr {int(rand() * [llength $queues])}]]
+		puts "randomly picked $source from ($queues)"
+		return $source
+	}
 
-		#$con configure -received [list apply {
-		#	{con msg} {
-		#		puts "Got msg from ($con): ($msg)"
-		#		$con send "echo: ($msg)"
-		#	}
-		#} $con]
+	$queue attach $con
+	oo::objdefine $queue method receive {msg} {
+		puts "Got msg from ([self]): ($msg)"
+		my enqueue "echo: ($msg)"
 	}
 }
 
 puts "Created listener on port 1234: ($listener)"
-coroutine coro_main vwait ::forever
+vwait ::forever

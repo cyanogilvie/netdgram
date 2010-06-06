@@ -1,18 +1,18 @@
-#!/usr/bin/env cfkit8.6
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
 
 tcl::tm::path add [file normalize [file join [file dirname [info script]] .. tm tcl]]
-tcl::tm::path add [file normalize [file join ~ .tbuild repo tm tcl]]
 
-lappend auto_path [file normalize [file join ~ .tbuild repo pkg linux-glibc2.3-ix86]]
+package require netdgram 0.5.4
+package require cflib
 
-#package require netdgram::tcp
-package require netdgram
+cflib::config create cfg $argv {
+	variable uri	"tcp://"
+}
 
-#netdgram::ConnectionMethod::TCP_coroutine create cm_tcp_coroutine
+package require netdgram::tcp
+oo::define netdgram::connectionmethod::tcp method default_port {} {return 4300}
 
-#set con	[cm_tcp connect localhost 1234]
-#set con		[netdgram::connect_uri "tcp://localhost:1234"]
-set con		[netdgram::connect_uri "uds:///tmp/example.socket"]
+set con		[netdgram::connect_uri [cfg get uri]]
 netdgram::queue create queue
 queue attach $con
 
@@ -30,18 +30,16 @@ oo::objdefine queue method pick {queues} {
 	return $source
 }
 
-#oo::objdefine queue method receive {msg} {
-#	puts "Got msg: ($msg)"
-#	exit
-#}
-proc myreceive {foo msg} {
-	puts "myGot msg: ($foo) ($msg)"
+oo::objdefine queue method receive {msg} {
+	namespace path {::tcl::mathop}
+	puts "Got msg: ($msg)"
 	if {[incr ::got] == 5} {
+		puts [format "Run time: %.3f milliseconds" [/ [- [clock microseconds] $::before] 1000.0]]
 		exit
 	}
 }
-oo::objdefine queue forward receive myreceive thisisfoo
 
+set before	[clock microseconds]
 $con activate
 queue enqueue {hello, world1}
 queue enqueue {hello, world2}
@@ -49,14 +47,5 @@ queue enqueue {hello, world3}
 queue enqueue {hello, world4}
 queue enqueue {hello, world5}
 
-#$con configure -received [list apply {
-#	{msg} {
-#		puts "Got msg: ($msg)"
-#		exit
-#	}
-#}]
-#$con activate
-#$con send {hello, world}
-
-coroutine coro_main vwait ::forever
+vwait ::forever
 
