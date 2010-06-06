@@ -1,0 +1,92 @@
+application "netdgram_example_client" { #<<<
+	version 0.1
+
+	runtime cfkit8.6
+
+	requires {
+		cflib
+		dsl
+		netdgram
+		netdgram::tcp
+		netdgram::uds
+		netdgram::jssocket
+	}
+
+	files {
+		test_client.tcl
+	}
+
+	platform [this_platform]
+}
+
+#>>>
+application "netdgram_example_server" { #<<<
+	version 0.1
+
+	runtime cfkit8.6
+
+	requires {
+		cflib
+		dsl
+		netdgram
+		netdgram::tcp
+		netdgram::uds
+		netdgram::jssocket
+	}
+
+	files {
+		test_server.tcl
+	}
+
+	platform [this_platform]
+}
+
+#>>>
+application "netdgram_keepalive_client" { #<<<
+	version 0.1
+
+	runtime cfkit8.6
+
+	requires {
+		cflib
+		dsl
+		netdgram
+		netdgram::tcp
+		netdgram::uds
+		netdgram::jssocket
+		sockopt
+	}
+
+	files {
+		keepalive_client.tcl
+	}
+
+	platform [this_platform]
+}
+
+#>>>
+application "netdgram_keepalive_server" { #<<<
+	version 0.1
+
+	runtime cfkit8.6
+
+	requires {
+		cflib
+		dsl
+		netdgram
+		netdgram::tcp
+		netdgram::uds
+		netdgram::jssocket
+		sockopt
+	}
+
+	files {
+		keepalive_server.tcl
+	}
+
+	platform [this_platform]
+}
+
+#>>>
+
+# vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
