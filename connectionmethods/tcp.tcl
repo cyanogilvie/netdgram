@@ -1,5 +1,7 @@
 # vim: ft=tcl foldmethod=marker foldmarker=<<<,>>> ts=4 shiftwidth=4
 
+# TODO: take care of readable re-entrant issues
+
 namespace eval netdgram {
 	package require netdgram
 
@@ -203,19 +205,32 @@ namespace eval netdgram {
 			cl_ip
 			cl_port
 			data_waiting
+			buf
+			mode
+			remaining
+			payload
 		}
 
 		constructor {a_socket a_cl_ip a_cl_port a_flags} { #<<<
 			if {[self next] ne {}} {next}
 
+			namespace path [concat [namespace path] {
+				::oo::Helpers::cflib
+				::tcl::mathop
+				::tcl::mathfunc
+			}]
+
 			set socket	$a_socket
 			set cl_ip	$a_cl_ip
 			set cl_port	$a_cl_port
 			set data_waiting	0
+			set mode			0
+			set buf				""
+			set payload			""
 
 			chan configure $socket \
 					-blocking 0 \
-					-buffering line \
+					-buffering full \
 					-translation binary
 
 			try {
@@ -255,19 +270,13 @@ namespace eval netdgram {
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
-			set coro	"::consumer_[string map {:: _} [self]]"
-			coroutine $coro my _consumer
-			chan event $socket readable [list $coro]
+			chan event $socket readable [code _readable]
 		}
 
 		#>>>
 		method send {msg} { #<<<
-			set data_len	[string length $msg]
 			try {
-				#chan configure $socket -buffering full
-				#chan puts $socket $data_len
-				#chan puts -nonewline $socket $msg
-				chan puts -nonewline $socket "$data_len\n$msg"
+				chan puts -nonewline $socket "[string length $msg]\n$msg"
 				#puts "writing msg: ($msg) to $socket"
 				chan flush $socket
 			} on error {errmsg options} {
@@ -286,19 +295,74 @@ namespace eval netdgram {
 				#my variable writable_kickoff
 				#set writable_kickoff	[clock microseconds]
 				chan event $socket writable [namespace code {my _notify_writable}]
+				my _notify_writable
 			} else {
 				chan event $socket writable {}
 			}
 		}
 
 		#>>>
+		method is_data_waiting {} {set data_waiting}
 
+		method _readable {} { #<<<
+			try {
+				append buf	[chan read $socket]
+			} trap {POSIX EHOSTUNREACH} {errmsg options} {
+				puts stderr "Host unreachable from $cl_ip:$cl_port"
+				tailcall my destroy
+			} trap {POSIX ETIMEDOUT} {errmsg options} {
+				puts stderr "Host timeout from $cl_ip:$cl_port"
+				tailcall my destroy
+			}
+
+			if {[chan eof $socket]} {
+				tailcall my destroy
+			}
+			if {[chan blocked $socket]} return
+
+			while {1} {
+				if {$mode == 0} {
+					if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
+					#set idx	[string first \n $buf]
+					#if {$idx == -1} return
+					#set line	[string range $buf 0 [- $idx 1]]
+					#set datastart	[+ $idx 1]
+					lassign $line remaining
+					set buf		[string range $buf[unset buf] $datastart end]
+					set mode	1
+				}
+				if {$mode == 1} {
+					set buflen	[string length $buf]
+					set consume	[min $buflen $remaining]
+					if {$consume == $buflen} {
+						append payload	$buf
+						set buf			""
+					} else {
+						append payload	[string range $buf 0 [- $consume 1]]
+						set buf			[string range $buf $consume end]
+					}
+					if {[incr remaining -$consume] > 0} return
+
+					try {
+						# TODO: take care of re-entrant issues here, which
+						# occur if the code called here enters vwait, and more
+						# data arrives and wakes up _readable again
+						my received $payload
+					} on error {errmsg options} {
+						puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+					}
+					set mode	0
+					set payload	""
+				}
+			}
+		}
+
+		#>>>
 		method _consumer {} { #<<<
 			try {
 				while {1} {
+					chan configure $socket -buffering line
 					while {1} {
-						chan configure $socket -buffering line
-
 						try {
 							gets $socket
 						} trap {POSIX EHOSTUNREACH} {errmsg options} {
@@ -324,9 +388,8 @@ namespace eval netdgram {
 					}
 
 					set payload	""
+					chan configure $socket -buffering none
 					while {$remaining > 0} {
-						chan configure $socket -buffering none
-
 						set chunk	[chan read $socket $remaining]
 						if {[chan eof $socket]} {throw {close} ""}
 						set chunklen	[string length $chunk]
@@ -346,9 +409,11 @@ namespace eval netdgram {
 					# coroutine if the callback enters vwait before returning,
 					# and another packet arrives that tries to wake up this
 					# consumer coro again
-					after idle [list coroutine coro_received_[incr ::coro_seq] \
-							{*}[namespace code [list my received $payload]]]
+					#after idle [list coroutine coro_received_[incr ::coro_seq] \
+					#		{*}[namespace code [list my received $payload]]]
 					#after idle	[namespace code [list my received $payload]]
+					my received $payload
+					#coroutine coro_received_[incr ::coro_seq] my received $payload
 				}
 			} trap {close} {res options} {
 				# Nothing to do.  destructor takes care of it

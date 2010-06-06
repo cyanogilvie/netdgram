@@ -89,6 +89,7 @@ namespace eval netdgram {
 		method send {msg} {}
 		method activate {} {}	;# Called when accept checks are passed
 		method data_waiting {newstate} {}
+		method is_data_waiting {} {}
 	}
 
 	#>>>
