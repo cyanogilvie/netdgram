@@ -18,6 +18,11 @@ namespace eval netdgram {
 
 		constructor {} { #<<<
 			if {[self next] ne {}} {next}
+
+			namespace path [concat [namespace path] {
+				::tcl::mathop
+			}]
+
 			set queues		[dict create]
 			set defrag_buf	[dict create]
 			set msgid_seq	0
@@ -44,8 +49,13 @@ namespace eval netdgram {
 		method attach {con} { #<<<
 			set rawcon	$con
 
-			oo::objdefine $rawcon forward writable \
-					{*}[namespace code {my _rawcon_writable}]
+			if {$write_combining} {
+				oo::objdefine $rawcon forward writable \
+						{*}[namespace code {my _rawcon_writable_combining}]
+			} else {
+				oo::objdefine $rawcon forward writable \
+						{*}[namespace code {my _rawcon_writable}]
+			}
 			oo::objdefine $rawcon forward received \
 					{*}[namespace code {my _receive_raw}]
 			oo::objdefine $rawcon forward closed \
@@ -74,8 +84,9 @@ namespace eval netdgram {
 			set msgid		[incr msgid_seq]
 			#dict lappend queues $target [list $msgid [zlib deflate [encoding convertto utf-8 $msg] 3]]
 			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args]
+			#dict lappend queues $target [list $msgid $msg $args]
 			$rawcon data_waiting 1
-			return $target
+			set target
 		}
 
 		#>>>
@@ -105,6 +116,7 @@ namespace eval netdgram {
 		#>>>
 		method dequeue {max_payload} { # returns a {msgid is_tail fragment} <<<
 			if {[dict size $queues] == 0} {
+				$rawcon data_waiting 0
 				throw {queue_empty} ""
 			}
 
@@ -116,9 +128,9 @@ namespace eval netdgram {
 			if {$max_payload < [string length $msg]} {
 				set is_tail	0
 
-				set fragment		[string range $msg 0 $max_payload-1]
+				set fragment		[string range $msg 0 [- $max_payload 1]]
 				set remaining_msg	[string range $msg $max_payload end]
-				set new	[linsert $new 0 [list $msgid $remaining_msg $msgargs]]
+				set new	[linsert $new[unset new] 0 [list $msgid $remaining_msg $msgargs]]
 			} else {
 				set is_tail	1
 
@@ -158,6 +170,21 @@ namespace eval netdgram {
 				dict unset defrag_buf $msgid
 				#my receive [encoding convertfrom utf-8 [zlib inflate $complete]]
 				my receive [encoding convertfrom utf-8 $complete]
+				#my receive $complete
+			}
+		}
+
+		#>>>
+		method _new_receive_raw {msg} { #<<<
+			set p	0
+			while {$p < [string length $msg]} {
+				#puts "start: ([string range $msg $p [+ $p 40]])"
+				scan [string range $msg $p end] "%lld %1d %ld\n%n" \
+						msgid is_tail fragment_len datastart
+				incr datastart	$p
+				set p	[+ $datastart $fragment_len]
+				my _receive_fragment $msgid $is_tail \
+						[string range $msg $datastart [- $p 1]]
 			}
 		}
 
@@ -165,13 +192,12 @@ namespace eval netdgram {
 		method _receive_raw {msg} { #<<<
 			set p	0
 			while {$p < [string length $msg]} {
-				set idx	[string first "\n" $msg $p]
-				set head	[string range $msg $p $idx-1]
-				lassign $head msgid is_tail fragment_len
-				set end_idx	[expr {$idx + $fragment_len + 1}]
-				set frag	[string range $msg $idx+1 $end_idx]
-				set p		$end_idx
-				my _receive_fragment $msgid $is_tail $frag
+				set idx		[string first "\n" $msg $p]
+				lassign [string range $msg $p [- $idx 1]] \
+						msgid is_tail fragment_len
+				set p		[+ $idx $fragment_len 1]
+				my _receive_fragment $msgid $is_tail \
+						[string range $msg [+ $idx 1] [- $p 1]]
 			}
 		}
 
@@ -181,42 +207,31 @@ namespace eval netdgram {
 		}
 
 		#>>>
-		method _rawcon_writable {} { #<<<
+		method _rawcon_writable_combining {} { #<<<
 			set remaining_target	$target_payload_size
+			set payload				""
 
-			if {$write_combining} {
-				set payload	""
+			set c	0
+			while {[$rawcon is_data_waiting] && $remaining_target > 0} {
+				lassign [my dequeue $remaining_target] \
+						msgid is_tail fragment
 
-				try {
-					while {$remaining_target > 0} {
-						lassign [my dequeue $remaining_target] \
-								msgid is_tail fragment
-
-						set fragment_len	[string length $fragment]
-						set payload_portion	"$msgid $is_tail $fragment_len\n$fragment"
-						incr remaining_target -$fragment_len
-						append payload	$payload_portion
-					}
-				} trap {queue_empty} {} {}
-
-				if {[string length $payload] > 0} {
-					$rawcon send $payload
-				}
-			} else {
-				try {
-					lassign [my dequeue $remaining_target] \
-							msgid is_tail fragment
-
-					set fragment_len	[string length $fragment]
-					set payload_portion	"$msgid $is_tail $fragment_len\n$fragment"
-					incr remaining_target -$fragment_len
-					append payload	$payload_portion
-
-					$rawcon send $payload
-				} trap {queue_empty} {} {
-					return
-				}
+				set fragment_len	[string length $fragment]
+				incr remaining_target -$fragment_len
+				append payload	"$msgid $is_tail $fragment_len\n$fragment"
+				incr c
 			}
+
+			if {[string length $payload] > 0} {
+				$rawcon send $payload
+			}
+		}
+
+		#>>>
+		method _rawcon_writable {} { #<<<
+			lassign [my dequeue $target_payload_size] \
+					msgid is_tail fragment
+			$rawcon send "$msgid $is_tail [string length $fragment]\n$fragment"
 		}
 
 		#>>>
@@ -242,7 +257,7 @@ namespace eval netdgram {
 				}
 			}
 
-			return [list $firstonly $intersection $secondonly]
+			list $firstonly $intersection $secondonly
 		}
 
 		#>>>
