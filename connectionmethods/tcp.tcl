@@ -358,76 +358,6 @@ namespace eval netdgram {
 		}
 
 		#>>>
-		method _consumer {} { #<<<
-			try {
-				while {1} {
-					chan configure $socket -buffering line
-					while {1} {
-						try {
-							gets $socket
-						} trap {POSIX EHOSTUNREACH} {errmsg options} {
-							puts stderr "Host unreachable from $cl_ip:$cl_port
-							"
-							throw {close} "Host unreachable from $cl_ip:$cl_port"
-						} trap {POSIX ETIMEDOUT} {errmsg options} {
-							puts stderr "Host timeout from $cl_ip:$cl_port"
-							throw {close} "Host timeout from $cl_ip:$cl_port"
-						} on ok {line} {}
-
-						if {[chan eof $socket]} {throw {close} ""}
-						if {![chan blocked $socket]} break
-						#puts stderr "yielding waiting for the control line"
-						yield
-					}
-
-					lassign $line payload_bytecount
-					set remaining	$payload_bytecount
-
-					if {![string is integer -strict $payload_bytecount]} {
-						throw {close} ""
-					}
-
-					set payload	""
-					chan configure $socket -buffering none
-					while {$remaining > 0} {
-						set chunk	[chan read $socket $remaining]
-						if {[chan eof $socket]} {throw {close} ""}
-						set chunklen	[string length $chunk]
-						if {$chunklen == 0} {
-							#puts "yielding waiting for the rest of the data packet (got [string length $payload] bytes, waiting for $remaining bytes"
-							yield
-							continue
-						}
-						append payload	$chunk
-						unset chunk
-						incr remaining -$chunklen
-					}
-
-					# Prevent message handling code higher up the stack
-					# from yielding our consumer coroutine
-					# Needs the "after idle" to avoid trying to re-enter this
-					# coroutine if the callback enters vwait before returning,
-					# and another packet arrives that tries to wake up this
-					# consumer coro again
-					#after idle [list coroutine coro_received_[incr ::coro_seq] \
-					#		{*}[namespace code [list my received $payload]]]
-					#after idle	[namespace code [list my received $payload]]
-					my received $payload
-					#coroutine coro_received_[incr ::coro_seq] my received $payload
-				}
-			} trap {close} {res options} {
-				# Nothing to do.  destructor takes care of it
-			} on error {errmsg options} {
-				puts stderr "Unhandled error in consumer for ($cl_ip:$cl_port): $errmsg"
-				array set e $options
-				parray e
-				puts stderr "[dict get $options -errorinfo]"
-			} finally {
-				my destroy
-			}
-		}
-
-		#>>>
 		method _notify_writable {} { #<<<
 			# Also called for eof
 			if {[chan eof $socket]} {
@@ -450,7 +380,6 @@ namespace eval netdgram {
 
 		#>>>
 	}
-
 
 	#>>>
 }

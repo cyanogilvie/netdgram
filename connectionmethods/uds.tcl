@@ -159,13 +159,32 @@ namespace eval netdgram {
 		variable {*}{
 			socket
 			data_waiting
+			buf
+			mode
+			remaining
+			payload
 		}
 
 		constructor {a_socket a_flags} { #<<<
 			if {[self next] ne {}} {next}
 
+			namespace path [concat [namespace path] {
+				::oo::Helpers::cflib
+				::tcl::mathop
+				::tcl::mathfunc
+			}]
+
 			set socket	$a_socket
 			set data_waiting	0
+			set mode			0
+			set buf				""
+			set payload			""
+
+			chan configure $socket \
+					-blocking 0 \
+					-buffering full \
+					-translation binary
+
 			#puts "[self] initialized socket to: ($socket)"
 		}
 
@@ -188,19 +207,13 @@ namespace eval netdgram {
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
-			set coro	"::consumer_[string map {:: _} [self]]"
-			coroutine $coro my _consumer
-			chan event $socket readable [list $coro]
+			chan event $socket readable [code _readable]
 		}
 
 		#>>>
 		method send {msg} { #<<<
-			set data_len	[string length $msg]
 			try {
-				chan configure $socket \
-						-buffering full
-				chan puts $socket $data_len
-				chan puts -nonewline $socket $msg
+				chan puts -nonewline $socket "[string length $msg]\n$msg"
 				#puts "writing msg: ($msg) to $socket"
 				chan flush $socket
 			} on error {errmsg options} {
@@ -217,64 +230,65 @@ namespace eval netdgram {
 
 			if {$data_waiting} {
 				chan event $socket writable [namespace code {my _notify_writable}]
+				my _notify_writable
 			} else {
 				chan event $socket writable {}
 			}
 		}
 
 		#>>>
+		method is_data_waiting {} {set data_waiting}
 
-		method _consumer {} { #<<<
+		method _readable {} { #<<<
 			try {
-				while {1} {
-					chan configure $socket \
-							-blocking 0 \
-							-buffering line \
-							-translation binary
+				append buf	[chan read $socket]
+			} trap {POSIX EHOSTUNREACH} {errmsg options} {
+				puts stderr "Host unreachable from $cl_ip:$cl_port"
+				tailcall my destroy
+			} trap {POSIX ETIMEDOUT} {errmsg options} {
+				puts stderr "Host timeout from $cl_ip:$cl_port"
+				tailcall my destroy
+			}
 
-					while {1} {
-						set line	[gets $socket]
-						if {[chan eof $socket]} {throw {close} ""}
-						if {![chan blocked $socket]} break
-						yield
-					}
+			if {[chan eof $socket]} {
+				tailcall my destroy
+			}
+			if {[chan blocked $socket]} return
 
-					lassign $line payload_bytecount
-					set remaining	$payload_bytecount
-
-					if {![string is integer -strict $payload_bytecount]} {
-						throw {close} ""
-					}
-
-					chan configure $socket \
-							-blocking 0 \
-							-buffering none \
-							-translation binary
-					set payload	""
-					while {$remaining > 0} {
-						set chunk	[chan read $socket $remaining]
-						if {[chan eof $socket]} {throw {close} ""}
-						set chunklen	[string length $chunk]
-						if {$chunklen == 0} {
-							yield
-							continue
-						}
-						append payload	$chunk
-						unset chunk
-						incr remaining -$chunklen
-					}
-
-					# Prevent message handling code higher up the stack
-					# from yielding our consumer coroutine
-					coroutine coro_received_[incr ::coro_seq] \
-							my received $payload
+			while {1} {
+				if {$mode == 0} {
+					if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
+					#set idx	[string first \n $buf]
+					#if {$idx == -1} return
+					#set line	[string range $buf 0 [- $idx 1]]
+					#set datastart	[+ $idx 1]
+					lassign $line remaining
+					set buf		[string range $buf[unset buf] $datastart end]
+					set mode	1
 				}
-			} trap {close} {res options} {
-				# Nothing to do.  destructor takes care of it
-			} on error {errmsg options} {
-				puts stderr "Unhandled error in consumer: $errmsg\n[dict get $options -errorinfo]"
-			} finally {
-				my destroy
+				if {$mode == 1} {
+					set buflen	[string length $buf]
+					set consume	[min $buflen $remaining]
+					if {$consume == $buflen} {
+						append payload	$buf
+						set buf			""
+					} else {
+						append payload	[string range $buf 0 [- $consume 1]]
+						set buf			[string range $buf $consume end]
+					}
+					if {[incr remaining -$consume] > 0} return
+
+					try {
+						# TODO: take care of re-entrant issues here, which
+						# occur if the code called here enters vwait, and more
+						# data arrives and wakes up _readable again
+						my received $payload
+					} on error {errmsg options} {
+						puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+					}
+					set mode	0
+					set payload	""
+				}
 			}
 		}
 
@@ -295,7 +309,6 @@ namespace eval netdgram {
 
 		#>>>
 	}
-
 
 	#>>>
 }
