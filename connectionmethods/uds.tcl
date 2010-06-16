@@ -171,7 +171,6 @@ namespace eval netdgram {
 			namespace path [concat [namespace path] {
 				::oo::Helpers::cflib
 				::tcl::mathop
-				::tcl::mathfunc
 			}]
 
 			set socket	$a_socket
@@ -268,7 +267,7 @@ namespace eval netdgram {
 				}
 				if {$mode == 1} {
 					set buflen	[string length $buf]
-					set consume	[min $buflen $remaining]
+					set consume	[tcl::mathfunc::min $buflen $remaining]
 					if {$consume == $buflen} {
 						append payload	$buf
 						set buf			""
