@@ -9,6 +9,10 @@ namespace eval netdgram {
 
 		constructor {} { #<<<
 			if {[self next] ne {}} {next}
+			namespace path [concat [namespace path] {
+				::oo::Helpers::cflib
+			}]
+
 			if {![package vsatisfies [info patchlevel] 8.6-]} {
 				error "Coroutines require Tcl 8.6"
 			}
@@ -86,11 +90,15 @@ namespace eval netdgram {
 		constructor {host port a_flags} { #<<<
 			if {[self next] ne {}} {next}
 
+			namespace path [concat [namespace path] {
+				::oo::Helpers::cflib
+			}]
+
 			set flags $a_flags
 			if {$host in {* 0.0.0.0 ""}} {
-				set listen	[socket -server [namespace code {my _accept}] $port]
+				set listen	[socket -server [code _accept] $port]
 			} else {
-				set listen	[socket -server [namespace code {my _accept}] -myaddr $host $port]
+				set listen	[socket -server [code _accept] -myaddr $host $port]
 			}
 		}
 
@@ -110,7 +118,7 @@ namespace eval netdgram {
 			puts stderr "Accepting socket ($socket) from ($cl_ip:$cl_port)"
 			try {
 				set con		[netdgram::connection::jssocket new \
-						$socket $cl_ip $cl_port $flags [namespace code {my accept}]]
+						$socket $cl_ip $cl_port $flags [code accept]]
 
 				oo::objdefine $con forward human_id return \
 						"con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
@@ -165,6 +173,12 @@ namespace eval netdgram {
 
 		constructor {a_socket a_cl_ip a_cl_port a_flags a_onaccept} { #<<<
 			if {[self next] ne {}} {next}
+
+			namespace path [concat [namespace path] {
+				::oo::Helpers::cflib
+				::tcl::mathop
+			}]
+
 			set socket	$a_socket
 			set cl_ip	$a_cl_ip
 			set cl_port	$a_cl_port
@@ -239,7 +253,7 @@ namespace eval netdgram {
 			if {$data_waiting} {
 				#my variable writable_kickoff
 				#set writable_kickoff	[clock microseconds]
-				chan event $socket writable [namespace code {my _notify_writable}]
+				chan event $socket writable [code _notify_writable]
 			} else {
 				chan event $socket writable {}
 			}
@@ -329,7 +343,7 @@ namespace eval netdgram {
 				# and another packet arrives that tries to wake up this
 				# consumer coro again
 				after idle [list coroutine coro_received_[incr ::coro_seq] \
-						{*}[namespace code [list my received [binary decode base64 $part]]]]
+						{*}[code received [binary decode base64 $part]]]
 			}
 		}
 

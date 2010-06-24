@@ -236,13 +236,14 @@ namespace eval netdgram {
 				try {
 					package require sockopt
 				} on error {errmsg options} {
-					#puts stderr "Could not load sockopts: $errmsg"
+					?? {log warning "Could not load sockopts: $errmsg"}
 				} on ok {} {
 					sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
 					sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
 					sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
 					sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
 					sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
+					?? {log debug "Loaded sockopt and configured keepalive and nodelay"}
 				}
 			} on error {errmsg options} {
 				puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
@@ -252,15 +253,21 @@ namespace eval netdgram {
 
 		#>>>
 		destructor { #<<<
+			?? {log debug "tcp connection handler dieing [self]"}
 			if {[info exists socket]} {
 				if {$socket in [chan names]} {
+					?? {log debug "Closing socket [self]"}
 					close $socket
 				}
 				unset socket
 			}
 
+			?? {log debug "Calling closed hooks [self]"}
 			my closed
+			?? {log debug "Done calling closed hooks [self]"}
+
 			if {[self next] ne {}} {next}
+			?? {log debug "All done [self]"}
 		}
 
 		#>>>
@@ -269,12 +276,14 @@ namespace eval netdgram {
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
+			?? {log debug "Activating socket [self]"}
 			chan event $socket readable [code _readable]
 		}
 
 		#>>>
 		method send {msg} { #<<<
 			try {
+				?? {log debug "Sending message [self]"}
 				chan puts -nonewline $socket "[string length $msg]\n$msg"
 				#puts "writing msg: ($msg) to $socket"
 				chan flush $socket
@@ -293,9 +302,11 @@ namespace eval netdgram {
 			if {$data_waiting} {
 				#my variable writable_kickoff
 				#set writable_kickoff	[clock microseconds]
-				chan event $socket writable [namespace code {my _notify_writable}]
+				?? {log debug "data waiting [self] 0 -> 1"}
+				chan event $socket writable [code _notify_writable]
 				my _notify_writable
 			} else {
+				?? {log debug "data waiting [self] 1 -> 0"}
 				chan event $socket writable {}
 			}
 		}
@@ -304,20 +315,25 @@ namespace eval netdgram {
 		method is_data_waiting {} {set data_waiting}
 
 		method _readable {} { #<<<
+			?? {log debug "readable [self]"}
 			try {
 				append buf	[chan read $socket]
 			} trap {POSIX EHOSTUNREACH} {errmsg options} {
-				puts stderr "Host unreachable from $cl_ip:$cl_port"
+				log error "Host unreachable from $cl_ip:$cl_port"
 				tailcall my destroy
 			} trap {POSIX ETIMEDOUT} {errmsg options} {
-				puts stderr "Host timeout from $cl_ip:$cl_port"
+				log error "Host timeout from $cl_ip:$cl_port"
 				tailcall my destroy
 			}
 
 			if {[chan eof $socket]} {
+				?? {log debug "socket closed [self]"}
 				tailcall my destroy
 			}
-			if {[chan blocked $socket]} return
+			if {[chan blocked $socket]} {
+				?? {log debug "socket blocked, returning [self]"}
+				return
+			}
 
 			while {1} {
 				if {$mode == 0} {
@@ -354,12 +370,15 @@ namespace eval netdgram {
 					set payload	""
 				}
 			}
+			?? {log debug "leaving readable [self]"}
 		}
 
 		#>>>
 		method _notify_writable {} { #<<<
+			?? {log debug "_notify_writable [self]"}
 			# Also called for eof
 			if {[chan eof $socket]} {
+				?? {log debug "eof [self]"}
 				my destroy
 				return
 			}
@@ -371,6 +390,7 @@ namespace eval netdgram {
 			#	puts stderr "delay in getting writable after asking for it: $writable_delay usec"
 			#}
 			try {
+				?? {log debug "Calling writable handler [self]"}
 				my writable
 			} on error {errmsg options} {
 				puts stderr "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
