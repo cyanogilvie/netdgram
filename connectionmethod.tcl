@@ -14,9 +14,21 @@ namespace eval netdgram {
 			set uri_obj		[netdgram::uri new $uri]
 			set uri_parts	[$uri_obj as_dict]
 
+			if {[$uri_obj type] eq "relative"} {
+				if {
+					[dict get $uri_parts authority] eq "" &&
+					[dict get $uri_parts path] ne ""
+				} {
+					$uri_obj set_part scheme uds
+				} else {
+					$uri_obj set_part scheme tcp
+				}
+				set uri_parts	[$uri_obj as_dict]
+			}
+
 			set manager	[netdgram::_get_manager [dict get $uri_parts scheme]]
 
-			return [$manager connect $uri_obj]
+			$manager connect $uri_obj
 		} finally {
 			if {[info exists uri_obj] && [info object is object $uri_obj]} {
 				$uri_obj destroy

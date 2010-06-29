@@ -59,10 +59,10 @@ oo::class create netdgram::uri {
 	#>>>
 
 	method type {} { #<<<
-		if {[dict exists $parts scheme]} {
-			return "absolute"
-		} else {
-			return "relative"
+		expr {
+			[dict exists $parts scheme] &&
+			[dict get $parts scheme] ne ""
+			? "absolute" : "relative"
 		}
 	}
 
@@ -154,7 +154,7 @@ oo::class create netdgram::uri {
 	method _parseuri {uri {encoding "utf-8"}} { #<<<
 		if {[info exists cached_encoding]} {unset cached_encoding}
 		# Regex from RFC2396
-		if {![regexp {^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?} $uri x x1 scheme x2 authority path x3 query x4 fragment]} {
+		if {![regexp {^(([^:/?#]+)://)?(([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?} $uri x x1 scheme x2 authority path x3 query x4 fragment]} {
 			throw [list invalid_uri $uri] "Invalid URI"
 		}
 
