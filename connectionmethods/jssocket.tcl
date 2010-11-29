@@ -299,9 +299,7 @@ namespace eval netdgram {
 		#>>>
 		method _process_packets {buf} { #<<<
 			set parts		[split $buf "\x0"]
-			set remaining	[lindex $parts end]
-			set parts		[lrange $parts 0 end-1]
-			foreach part $parts {
+			foreach part [lrange $parts 0 end-1] {
 				if {[string trim $part] eq "<policy-file-request/>"} {
 					puts stderr "[self] Saw policy request, sending policy"
 					my _send_policy
@@ -345,6 +343,7 @@ namespace eval netdgram {
 				after idle [list coroutine coro_received_[incr ::coro_seq] \
 						{*}[code received [binary decode base64 $part]]]
 			}
+			lindex $parts end
 		}
 
 		#>>>
