@@ -227,9 +227,13 @@ namespace eval netdgram {
 			set buf				""
 			set payload			""
 
+			#chan configure $socket \
+			#		-blocking 0 \
+			#		-buffering full \
+			#		-translation binary
 			chan configure $socket \
 					-blocking 0 \
-					-buffering full \
+					-buffering none \
 					-translation binary
 
 			try {
@@ -286,7 +290,9 @@ namespace eval netdgram {
 				?? {log debug "Sending message [self]"}
 				chan puts -nonewline $socket "[string length $msg]\n$msg"
 				#puts "writing msg: ($msg) to $socket"
-				chan flush $socket
+				#?? {set before [clock microseconds]}
+				#chan flush $socket
+				#?? {log debug "chan flush time: [expr {[clock microseconds] - $before}] microseconds"}
 			} on error {errmsg options} {
 				puts stderr "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
 				my destroy
@@ -315,59 +321,66 @@ namespace eval netdgram {
 		method is_data_waiting {} {set data_waiting}
 
 		method _readable {} { #<<<
-			?? {log debug "readable [self]"}
-			try {
-				append buf	[chan read $socket]
-			} trap {POSIX EHOSTUNREACH} {errmsg options} {
-				log error "Host unreachable from $cl_ip:$cl_port"
-				tailcall my destroy
-			} trap {POSIX ETIMEDOUT} {errmsg options} {
-				log error "Host timeout from $cl_ip:$cl_port"
-				tailcall my destroy
-			}
-
-			if {[chan eof $socket]} {
-				?? {log debug "socket closed [self]"}
-				tailcall my destroy
-			}
-			if {[chan blocked $socket]} {
-				?? {log debug "socket blocked, returning [self]"}
-				return
-			}
-
+			?? {log debug "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
 			while {1} {
-				if {$mode == 0} {
-					if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
-					#set idx	[string first \n $buf]
-					#if {$idx == -1} return
-					#set line	[string range $buf 0 [- $idx 1]]
-					#set datastart	[+ $idx 1]
-					lassign $line remaining
-					set buf		[string range $buf[unset buf] $datastart end]
-					set mode	1
+				try {
+					chan read $socket
+				} on ok {chunk} {
+					?? {log debug "after chan read, chunk: [string length $chunk]"}
+					append buf	$chunk
+				} trap {POSIX EHOSTUNREACH} {errmsg options} {
+					log error "Host unreachable from $cl_ip:$cl_port"
+					tailcall my destroy
+				} trap {POSIX ETIMEDOUT} {errmsg options} {
+					log error "Host timeout from $cl_ip:$cl_port"
+					tailcall my destroy
 				}
-				if {$mode == 1} {
-					set buflen	[string length $buf]
-					set consume	[tcl::mathfunc::min $buflen $remaining]
-					if {$consume == $buflen} {
-						append payload	$buf
-						set buf			""
-					} else {
-						append payload	[string range $buf 0 [- $consume 1]]
-						set buf			[string range $buf $consume end]
-					}
-					if {[incr remaining -$consume] > 0} return
 
-					try {
-						# TODO: take care of re-entrant issues here, which
-						# occur if the code called here enters vwait, and more
-						# data arrives and wakes up _readable again
-						my received $payload
-					} on error {errmsg options} {
-						puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+				if {[chan eof $socket]} {
+					?? {log debug "socket closed [self]"}
+					tailcall my destroy
+				}
+				if {[string length $chunk] == 0} return
+				if {[chan blocked $socket]} {
+					?? {log debug "socket blocked, returning [self]"}
+					return
+				}
+
+				while {1} {
+					if {$mode == 0} {
+						if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
+						#set idx	[string first \n $buf]
+						#if {$idx == -1} return
+						#set line	[string range $buf 0 [- $idx 1]]
+						#set datastart	[+ $idx 1]
+						lassign $line remaining
+						set buf		[string range $buf[unset buf] $datastart end]
+						set mode	1
 					}
-					set mode	0
-					set payload	""
+					if {$mode == 1} {
+						set buflen	[string length $buf]
+						set consume	[tcl::mathfunc::min $buflen $remaining]
+						if {$consume == $buflen} {
+							append payload	$buf
+							set buf			""
+						} else {
+							append payload	[string range $buf 0 [- $consume 1]]
+							set buf			[string range $buf $consume end]
+						}
+						if {[incr remaining -$consume] > 0} break
+
+						try {
+							# TODO: take care of re-entrant issues here, which
+							# occur if the code called here enters vwait, and more
+							# data arrives and wakes up _readable again
+							?? {log debug "dispatching payload of [string length $payload] bytes"}
+							my received $payload
+						} on error {errmsg options} {
+							puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+						}
+						set mode	0
+						set payload	""
+					}
 				}
 			}
 			?? {log debug "leaving readable [self]"}

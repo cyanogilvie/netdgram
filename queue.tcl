@@ -14,6 +14,8 @@ namespace eval netdgram {
 			target_payload_size
 			roundrobin
 			write_combining
+			next_frag
+			prequeueing
 		}
 
 		constructor {} { #<<<
@@ -29,10 +31,13 @@ namespace eval netdgram {
 			#set target_payload_size		10000
 			set roundrobin				{}
 			set write_combining			0
+			set prequeueing				1
 
 			# worked out to 1500 MTU and msgid up to 9,999,999,999 or 14.63
 			# days of full frames on a 100Mb network
-			set target_payload_size		[expr {1447 - 10}]
+			#set target_payload_size		[expr {1447 - 10}]
+			#set target_payload_size			8937
+			set target_payload_size			4076
 
 			#set target_payload_size	8
 		}
@@ -83,7 +88,7 @@ namespace eval netdgram {
 
 			set msgid		[incr msgid_seq]
 			#dict lappend queues $target [list $msgid [zlib deflate [encoding convertto utf-8 $msg] 3]]
-			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args]
+			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args 0]
 			#dict lappend queues $target [list $msgid $msg $args]
 			$rawcon data_waiting 1
 			set target
@@ -115,38 +120,61 @@ namespace eval netdgram {
 
 		#>>>
 		method dequeue {max_payload} { # returns a {msgid is_tail fragment} <<<
+			?? {
+				set times	{}
+				set last	[clock microseconds]
+			}
+			if {[info exists next_frag]} {
+				?? {puts "Using next_frag"}
+				if {[dict size $queues] == 0} {
+					?? {puts "next_frag Queues empty, flagging data_waiting 0"}
+					$rawcon data_waiting 0
+					#?? {lappend times notify_data_waiting_0  [- [set tmp [clock microseconds]] $last]; set last $tmp}
+				}
+				return $next_frag[unset next_frag]
+			}
 			if {[dict size $queues] == 0} {
 				$rawcon data_waiting 0
 				throw {queue_empty} ""
 			}
+			?? {lappend times test_empty [- [set tmp [clock microseconds]] $last]; set last $tmp}
 
 			set source	[my pick [dict keys $queues]]
+			?? {lappend times pick [- [set tmp [clock microseconds]] $last]; set last $tmp}
 
 			set new	[lassign [dict get $queues $source] next]
 
-			lassign $next msgid msg msgargs
-			if {$max_payload < [string length $msg]} {
+			lassign $next msgid msg msgargs ofs
+			?? {lappend times pull_next  [- [set tmp [clock microseconds]] $last]; set last $tmp}
+			if {[string length $msg] - $ofs > $max_payload} {
 				set is_tail	0
 
-				set fragment		[string range $msg 0 [- $max_payload 1]]
-				set remaining_msg	[string range $msg $max_payload end]
-				set new	[linsert $new[unset new] 0 [list $msgid $remaining_msg $msgargs]]
+				set fragment		[string range $msg $ofs [+ $ofs $max_payload -1]]
+				set new	[linsert $new[unset new] 0 [list $msgid $msg $msgargs [+ $ofs $max_payload]]]
 			} else {
 				set is_tail	1
 
 				my sent {*}$msgargs
 
-				set fragment		$msg
+				set fragment		[string range $msg $ofs end]
 			}
+			?? {lappend times frag_handler  [- [set tmp [clock microseconds]] $last]; set last $tmp}
 
 			if {[llength $new] > 0} {
 				dict set queues $source $new
 			} else {
 				dict unset queues $source
 			}
-			if {[dict size $queues] == 0} {
-				$rawcon data_waiting 0
+			?? {lappend times update_queues_state  [- [set tmp [clock microseconds]] $last]; set last $tmp}
+			if {!$prequeueing} {
+				if {[dict size $queues] == 0} {
+					?? {puts "Queues empty, flagging data_waiting 0"}
+					$rawcon data_waiting 0
+					#?? {lappend times notify_data_waiting_0  [- [set tmp [clock microseconds]] $last]; set last $tmp}
+				}
 			}
+			#?? {log debug "dequeue times: $times\nreturning: msgid: $msgid, tail: $is_tail, fragment: ($fragment)"}
+			?? {log debug "dequeue times: $times"}
 			list $msgid $is_tail $fragment
 		}
 
@@ -220,6 +248,10 @@ namespace eval netdgram {
 				incr remaining_target -$fragment_len
 				append payload	"$msgid $is_tail $fragment_len\n$fragment"
 				incr c
+				if {[dict size $queues] == 0} {
+					$rawcon data_waiting 0
+					break
+				}
 			}
 
 			if {[string length $payload] > 0} {
@@ -229,9 +261,22 @@ namespace eval netdgram {
 
 		#>>>
 		method _rawcon_writable {} { #<<<
+			?? {log debug "_rawcon_writable [self]"}
 			lassign [my dequeue $target_payload_size] \
 					msgid is_tail fragment
+			#?? {log debug "_rawcon_writable [self], got dequeue"}
 			$rawcon send "$msgid $is_tail [string length $fragment]\n$fragment"
+			if {$prequeueing} {
+				if {[dict size $queues] > 0} {
+					# Prepare the next fragment
+					?? {puts "queue size: [dict size $queues], preparing next_frag"}
+					set qs_was	[dict size $queues]
+					set next_frag	[my dequeue $target_payload_size]
+					?? {puts "after next_frag prep, queue size: [dict size $queues]"}
+				} else {
+					$rawcon data_waiting 0
+				}
+			}
 		}
 
 		#>>>
