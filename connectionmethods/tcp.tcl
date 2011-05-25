@@ -303,9 +303,7 @@ namespace eval netdgram {
 		#>>>
 		method data_waiting {newstate} { #<<<
 			if {$newstate == $data_waiting} return
-			set data_waiting	$newstate
-
-			if {$data_waiting} {
+			if {[set data_waiting $newstate]} {
 				#my variable writable_kickoff
 				#set writable_kickoff	[clock microseconds]
 				?? {log debug "data waiting [self] 0 -> 1"}

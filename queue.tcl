@@ -84,12 +84,22 @@ namespace eval netdgram {
 
 		#>>>
 		method enqueue {msg args} { #<<<
-			set target	[my assign $msg {*}$args]
-
 			set msgid		[incr msgid_seq]
+			set emsg		[encoding convertto utf-8 $msg]
+			if {
+				[dict size $queues] == 0 &&
+				[string length $emsg] <= $target_payload_size
+			} {
+				# Optimize the 90% case of a small message with empty queues
+				# we assume the rawcon is writable because the queues were empty
+				my sent {*}$args
+				$rawcon send "$msgid 1 [string length $emsg]\n$emsg"
+				?? {log debug "Followed shortcut path"}
+				return
+			}
+			set target	[my assign $msg {*}$args]
+			dict lappend queues $target [list $msgid $emsg $args 0]
 			#dict lappend queues $target [list $msgid [zlib deflate [encoding convertto utf-8 $msg] 3]]
-			dict lappend queues $target [list $msgid [encoding convertto utf-8 $msg] $args 0]
-			#dict lappend queues $target [list $msgid $msg $args]
 			$rawcon data_waiting 1
 			set target
 		}
