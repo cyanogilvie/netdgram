@@ -9,15 +9,6 @@ namespace eval netdgram {
 		superclass netdgram::connectionmethod
 		mixin netdgram::debug
 
-		constructor {} { #<<<
-			if {[self next] ne {}} {next}
-			if {![package vsatisfies [info patchlevel] 8.6-]} {
-				error "Coroutines require Tcl 8.6"
-			}
-		}
-
-		#>>>
-
 		method listen {uri_obj} { #<<<
 			set parts	[$uri_obj as_dict]
 			set params	[split [dict get $parts authority] :]
@@ -47,13 +38,11 @@ namespace eval netdgram {
 				}
 			}
 			set flags	[dict get $parts query]
-			set listen [netdgram::listener::tcp new $host $port $flags]
+			set listen	[netdgram::listener::tcp new $host $port $flags]
 			oo::objdefine $listen forward human_id apply {
-				{human_id} {
-					set human_id
-				}
+				{human_id} {set human_id}
 			} "uri([$uri_obj encoded]) pid([pid])"
-			return $listen
+			set listen
 		}
 
 		#>>>
@@ -89,13 +78,11 @@ namespace eval netdgram {
 				set flags	[dict get $parts query]
 				set socket	[socket $host $port]
 
-				set con	[netdgram::connection::tcp new $socket $host $port $flags]
+				set con	[netdgram::connection::tcp new new $socket $host $port $flags]
 				oo::objdefine $con forward human_id apply {
-					{human_id} {
-						set human_id
-					}
+					{human_id} {set human_id}
 				} "uri([$uri_obj encoded]) pid([pid]) con($con)"
-				return $con
+				set con
 			} on error {errmsg options} {
 				if {[info exists con] && [info object isa object $con]} {
 					$con destroy
@@ -131,7 +118,7 @@ namespace eval netdgram {
 		}
 
 		constructor {host port a_flags} { #<<<
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 
 			set flags $a_flags
 			if {$host in {* 0.0.0.0 ""}} {
@@ -150,7 +137,7 @@ namespace eval netdgram {
 				unset listen
 			}
 
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 		}
 
 		#>>>
@@ -158,12 +145,10 @@ namespace eval netdgram {
 		method _accept {socket cl_ip cl_port} { #<<<
 			try {
 				set con		[netdgram::connection::tcp new \
-						$socket $cl_ip $cl_port $flags]
+						new $socket $cl_ip $cl_port $flags]
 
 				oo::objdefine $con forward human_id apply {
-					{human_id} {
-						set human_id
-					}
+					{human_id} {set human_id}
 				} "con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
 
 				my accept $con $cl_ip $cl_port
@@ -209,68 +194,91 @@ namespace eval netdgram {
 			mode
 			remaining
 			payload
+
+			teleporting
 		}
 
-		constructor {a_socket a_cl_ip a_cl_port a_flags} { #<<<
-			if {[self next] ne {}} {next}
+		constructor {create_mode a_socket a_cl_ip a_cl_port a_flags} { #<<<
+			if {[self next] ne ""} next
 
 			namespace path [concat [namespace path] {
 				::oo::Helpers::cflib
 				::tcl::mathop
 			}]
 
-			set socket	$a_socket
-			set cl_ip	$a_cl_ip
-			set cl_port	$a_cl_port
-			set data_waiting	0
-			set mode			0
-			set buf				""
-			set payload			""
+			if {$create_mode eq "new"} {
+				set socket	$a_socket
+				set cl_ip	$a_cl_ip
+				set cl_port	$a_cl_port
+				set data_waiting	0
+				set mode			0
+				set buf				""
+				set payload			""
+				set remaining		0
 
-			#chan configure $socket \
-			#		-blocking 0 \
-			#		-buffering full \
-			#		-translation binary
-			chan configure $socket \
-					-blocking 0 \
-					-buffering none \
-					-translation binary
+				#chan configure $socket \
+				#		-blocking 0 \
+				#		-buffering full \
+				#		-translation binary
+				chan configure $socket \
+						-blocking 0 \
+						-buffering none \
+						-translation binary
 
-			try {
 				try {
-					package require sockopt
+					try {
+						package require sockopt
+					} on error {errmsg options} {
+						?? {log warning "Could not load sockopts: $errmsg"}
+					} on ok {} {
+						sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
+						sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
+						?? {log debug "Loaded sockopt and configured keepalive and nodelay"}
+					}
 				} on error {errmsg options} {
-					?? {log warning "Could not load sockopts: $errmsg"}
-				} on ok {} {
-					sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
-					sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
-					?? {log debug "Loaded sockopt and configured keepalive and nodelay"}
+					puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
+					return -options $options $errmsg
 				}
-			} on error {errmsg options} {
-				puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
-				return -options $options $errmsg
+			} elseif {$create_mode eq "teleport"} {
+				lassign $a_socket \
+						socket \
+						cl_ip \
+						cl_port \
+						data_waiting \
+						buf \
+						mode \
+						remaining \
+						payload
+				thread::attach $socket
+				if {$data_waiting} {
+					chan event $socket writable [code _notify_writable]
+				}
+			} else {
+				error "Invalid create_mode \"$create_mode\""
 			}
 		}
 
 		#>>>
 		destructor { #<<<
-			?? {log debug "tcp connection handler dieing [self]"}
-			if {[info exists socket]} {
-				if {$socket in [chan names]} {
-					?? {log debug "Closing socket [self]"}
-					close $socket
+			if {![info exists teleporting]} {
+				?? {log debug "tcp connection handler dieing [self]"}
+				if {[info exists socket]} {
+					if {$socket in [chan names]} {
+						?? {log debug "Closing socket [self]"}
+						close $socket
+					}
+					unset socket
 				}
-				unset socket
+
+				?? {log debug "Calling closed hooks [self]"}
+				my closed
+				?? {log debug "Done calling closed hooks [self]"}
 			}
 
-			?? {log debug "Calling closed hooks [self]"}
-			my closed
-			?? {log debug "Done calling closed hooks [self]"}
-
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 			?? {log debug "All done [self]"}
 		}
 
@@ -317,7 +325,28 @@ namespace eval netdgram {
 
 		#>>>
 		method is_data_waiting {} {set data_waiting}
+		method teleport thread_id { #<<<
+			puts "[self class] [self] teleporting to $thread_id"
+			chan event $socket readable {}
+			chan event $socket writable {}
+			thread::detach $socket
+			thread::send $thread_id {package require netdgram::tcp}
+			set new	[thread::send $thread_id [list [self class] new teleport [list \
+					$socket \
+					$cl_ip \
+					$cl_port \
+					$data_waiting \
+					$buf \
+					$mode \
+					$remaining \
+					$payload] - - -]]
+			unset socket
+			set teleporting	1
+			my destroy
+			set new
+		}
 
+		#>>>
 		method _readable {} { #<<<
 			?? {log debug "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
 			while {1} {

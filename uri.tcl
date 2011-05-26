@@ -68,7 +68,7 @@ oo::class create netdgram::uri {
 
 	#>>>
 	method as_dict {} { #<<<
-		return $parts
+		set parts
 	}
 
 	#>>>
@@ -124,7 +124,7 @@ oo::class create netdgram::uri {
 			}
 		}
 
-		return $cached_encoding
+		set cached_encoding
 	}
 
 	#>>>
@@ -135,7 +135,7 @@ oo::class create netdgram::uri {
 			lassign [split $term =] key val
 			dict set build [my _urldecode $key $encoding] [my _urldecode $val $encoding]
 		}
-		return $build
+		set build
 	}
 
 	#>>>
@@ -146,7 +146,7 @@ oo::class create netdgram::uri {
 			set evalue	[my _hexhex_encode [encoding convertto $encoding $value]]
 			lappend terms	"${ekey}=${evalue}"
 		}
-		return [join $terms &]
+		join $terms &
 	}
 
 	#>>>
@@ -166,14 +166,14 @@ oo::class create netdgram::uri {
 				fragment	[my _urldecode $fragment $encoding] \
 		]
 
-		return $parts
+		set parts
 	}
 
 	#>>>
 	method _urldecode {data {encoding "utf-8"}} { #<<<
 		regsub -all {([][$\\])} $data {\\\1} data
 		regsub -all {%([0-9a-fA-F][0-9a-fA-F])} $data  {[binary format H2 \1]} data
-		return [encoding convertfrom $encoding [subst $data]]
+		encoding convertfrom $encoding [subst $data]
 	}
 
 	#>>>
@@ -201,12 +201,12 @@ oo::class create netdgram::uri {
 		foreach byte $byteslist {
 			set byte	[expr {$byte & 0xff}]	;# convert to unsigned
 			if {$byte in $elist} {
-				append out	[format "%c" $byte] 
+				append out	[format %c $byte] 
 			} else {
 				append out	[lindex $charmap $byte]
 			}
 		}
-		return $out
+		set out
 	}
 
 	#>>>

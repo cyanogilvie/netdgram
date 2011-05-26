@@ -9,9 +9,6 @@ namespace eval netdgram {
 
 		constructor {} { #<<<
 			if {[self next] ne {}} {next}
-			if {![package vsatisfies [info patchlevel] 8.6-]} {
-				error "Coroutines require Tcl 8.6"
-			}
 
 			package require unix_sockets
 		}

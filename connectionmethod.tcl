@@ -64,7 +64,7 @@ namespace eval netdgram {
 			dict set managers $scheme \
 					[netdgram::connectionmethod::${scheme} new]
 		}
-		set manager	[dict get $managers $scheme]
+		dict get $managers $scheme
 	}
 
 	#>>>
@@ -97,6 +97,7 @@ namespace eval netdgram {
 		method received {msg} {}
 		method closed {} {}
 		method writable {} {}
+		method teleport thread_id {throw not_teleportable "Cannot teleport connections of type [self class]"}
 
 		method send {msg} {}
 		method activate {} {}	;# Called when accept checks are passed
