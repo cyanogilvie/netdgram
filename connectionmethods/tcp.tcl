@@ -79,9 +79,7 @@ namespace eval netdgram {
 				set socket	[socket $host $port]
 
 				set con	[netdgram::connection::tcp new new $socket $host $port $flags]
-				oo::objdefine $con forward human_id apply {
-					{human_id} {set human_id}
-				} "uri([$uri_obj encoded]) pid([pid]) con($con)"
+				$con set_human_id "uri([$uri_obj encoded]) pid([pid]) con($con)"
 				set con
 			} on error {errmsg options} {
 				if {[info exists con] && [info object isa object $con]} {
@@ -147,9 +145,7 @@ namespace eval netdgram {
 				set con		[netdgram::connection::tcp new \
 						new $socket $cl_ip $cl_port $flags]
 
-				oo::objdefine $con forward human_id apply {
-					{human_id} {set human_id}
-				} "con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
+				$con set_human_id "con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
 
 				my accept $con $cl_ip $cl_port
 			} on error {errmsg options} {
@@ -194,6 +190,7 @@ namespace eval netdgram {
 			mode
 			remaining
 			payload
+			human_id
 
 			teleporting
 		}
@@ -251,7 +248,8 @@ namespace eval netdgram {
 						buf \
 						mode \
 						remaining \
-						payload
+						payload \
+						human_id
 				thread::attach $socket
 				if {$data_waiting} {
 					chan event $socket writable [code _notify_writable]
@@ -339,7 +337,8 @@ namespace eval netdgram {
 					$buf \
 					$mode \
 					$remaining \
-					$payload] - - -]]
+					$payload \
+					$human_id] - - -]]
 			unset socket
 			set teleporting	1
 			my destroy
@@ -438,6 +437,8 @@ namespace eval netdgram {
 		}
 
 		#>>>
+		method human_id {} {set human_id}
+		method set_human_id {new_human_id} {set human_id $new_human_id}
 	}
 
 	#>>>
