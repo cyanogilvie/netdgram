@@ -111,7 +111,7 @@ namespace eval netdgram {
 
 				my accept $con
 			} on error {errmsg options} {
-				puts stderr "Error in accept: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
 					$con destroy
 					unset con
@@ -126,7 +126,7 @@ namespace eval netdgram {
 			try {
 				$con activate
 			} on error {errmsg options} {
-				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
+				log error "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
 				if {[info object is object $con]} {
 					$con destroy
 					unset con
@@ -244,7 +244,6 @@ namespace eval netdgram {
 		#>>>
 		method is_data_waiting {} {set data_waiting}
 		method teleport thread_id { #<<<
-			puts "[self class] [self] teleporting to $thread_id"
 			chan event $socket readable {}
 			chan event $socket writable {}
 			thread::detach $socket
@@ -269,10 +268,10 @@ namespace eval netdgram {
 				try {
 					append buf	[chan read $socket]
 				} trap {POSIX EHOSTUNREACH} {errmsg options} {
-					puts stderr "Host unreachable from $cl_ip:$cl_port"
+					log error "Host unreachable"
 					tailcall my destroy
 				} trap {POSIX ETIMEDOUT} {errmsg options} {
-					puts stderr "Host timeout from $cl_ip:$cl_port"
+					log error "Host timeout"
 					tailcall my destroy
 				}
 
