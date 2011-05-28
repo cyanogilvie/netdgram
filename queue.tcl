@@ -110,18 +110,18 @@ namespace eval netdgram {
 
 		#>>>
 		method shortcut_ok args {return 0}
-		method pick {queues} { # returns the queue to dequeue a msg from <<<
+		method pick a_queues { # returns the queue to dequeue a msg from <<<
 			# Default behaviour: roundrobin of queues
 			set new_roundrobin	{}
 
 			# Trim queues that have gone away
 			foreach queue $roundrobin {
-				if {$queue ni $queues} continue
+				if {$queue ni $a_queues} continue
 				lappend new_roundrobin $queue
 			}
 
 			# Append any new queues to the end of the roundrobin
-			foreach queue $queues {
+			foreach queue $a_queues {
 				if {$queue in $new_roundrobin} continue
 				lappend new_roundrobin $queue
 			}
@@ -130,7 +130,7 @@ namespace eval netdgram {
 			set roundrobin	[lassign $new_roundrobin next]
 			lappend roundrobin	$next
 
-			return $next
+			set next
 		}
 
 		#>>>
