@@ -91,7 +91,8 @@ namespace eval netdgram {
 			set emsg		[encoding convertto utf-8 $msg]
 			if {
 				[dict size $queues] == 0 &&
-				[string length $emsg] <= $target_payload_size
+				[string length $emsg] <= $target_payload_size &&
+				[my shortcut_ok {*}$args]
 			} {
 				# Optimize the 90% case of a small message with empty queues
 				# we assume the rawcon is writable because the queues were empty
@@ -108,6 +109,7 @@ namespace eval netdgram {
 		}
 
 		#>>>
+		method shortcut_ok args {return 0}
 		method pick {queues} { # returns the queue to dequeue a msg from <<<
 			# Default behaviour: roundrobin of queues
 			set new_roundrobin	{}

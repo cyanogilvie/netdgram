@@ -233,7 +233,7 @@ namespace eval netdgram {
 						sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
 						sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
 						sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
-						?? {log debug "Loaded sockopt and configured keepalive and nodelay"}
+						?? {log trivia "Loaded sockopt and configured keepalive and nodelay"}
 					}
 				} on error {errmsg options} {
 					puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
@@ -265,19 +265,15 @@ namespace eval netdgram {
 				?? {log debug "tcp connection handler dieing [self]"}
 				if {[info exists socket]} {
 					if {$socket in [chan names]} {
-						?? {log debug "Closing socket [self]"}
 						close $socket
 					}
 					unset socket
 				}
 
-				?? {log debug "Calling closed hooks [self]"}
 				my closed
-				?? {log debug "Done calling closed hooks [self]"}
 			}
 
 			if {[self next] ne ""} next
-			?? {log debug "All done [self]"}
 		}
 
 		#>>>
@@ -293,7 +289,7 @@ namespace eval netdgram {
 		#>>>
 		method send {msg} { #<<<
 			try {
-				?? {log debug "Sending message [self]"}
+				?? {log trivia "Sending message [self]"}
 				chan puts -nonewline $socket "[string length $msg]\n$msg"
 				#puts "writing msg: ($msg) to $socket"
 				#?? {set before [clock microseconds]}
@@ -312,11 +308,11 @@ namespace eval netdgram {
 			if {[set data_waiting $newstate]} {
 				#my variable writable_kickoff
 				#set writable_kickoff	[clock microseconds]
-				?? {log debug "data waiting [self] 0 -> 1"}
+				?? {log trivia "data waiting [self] 0 -> 1"}
 				chan event $socket writable [code _notify_writable]
 				my _notify_writable
 			} else {
-				?? {log debug "data waiting [self] 1 -> 0"}
+				?? {log trivia "data waiting [self] 1 -> 0"}
 				chan event $socket writable {}
 			}
 		}
@@ -347,12 +343,12 @@ namespace eval netdgram {
 
 		#>>>
 		method _readable {} { #<<<
-			?? {log debug "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
+			?? {log trivia "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
 			while {1} {
 				try {
 					chan read $socket
 				} on ok {chunk} {
-					?? {log debug "after chan read, chunk: [string length $chunk]"}
+					?? {log trivia "after chan read, chunk: [string length $chunk]"}
 					append buf	$chunk
 				} trap {POSIX EHOSTUNREACH} {errmsg options} {
 					log error "Host unreachable from $cl_ip:$cl_port"
@@ -363,12 +359,12 @@ namespace eval netdgram {
 				}
 
 				if {[chan eof $socket]} {
-					?? {log debug "socket closed [self]"}
+					?? {log trivia "socket closed [self]"}
 					tailcall my destroy
 				}
 				if {[string length $chunk] == 0} return
 				if {[chan blocked $socket]} {
-					?? {log debug "socket blocked, returning [self]"}
+					?? {log trivia "socket blocked, returning [self]"}
 					return
 				}
 
@@ -399,25 +395,25 @@ namespace eval netdgram {
 							# TODO: take care of re-entrant issues here, which
 							# occur if the code called here enters vwait, and more
 							# data arrives and wakes up _readable again
-							?? {log debug "dispatching payload of [string length $payload] bytes"}
+							?? {log trivia "dispatching payload of [string length $payload] bytes"}
 							my received $payload
 						} on error {errmsg options} {
-							puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+							log error "Error processing datagram: [dict get $options -errorinfo]"
 						}
 						set mode	0
 						set payload	""
 					}
 				}
 			}
-			?? {log debug "leaving readable [self]"}
+			?? {log trivia "leaving readable [self]"}
 		}
 
 		#>>>
 		method _notify_writable {} { #<<<
-			?? {log debug "_notify_writable [self]"}
+			?? {log trivia "_notify_writable [self]"}
 			# Also called for eof
 			if {[chan eof $socket]} {
-				?? {log debug "eof [self]"}
+				?? {log trivia "eof [self]"}
 				my destroy
 				return
 			}
@@ -429,10 +425,10 @@ namespace eval netdgram {
 			#	puts stderr "delay in getting writable after asking for it: $writable_delay usec"
 			#}
 			try {
-				?? {log debug "Calling writable handler [self]"}
+				?? {log trivia "Calling writable handler [self]"}
 				my writable
 			} on error {errmsg options} {
-				puts stderr "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
 			}
 		}
 
