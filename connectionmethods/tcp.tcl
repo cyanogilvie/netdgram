@@ -149,7 +149,7 @@ namespace eval netdgram {
 
 				my accept $con $cl_ip $cl_port
 			} on error {errmsg options} {
-				puts stderr "Error in accept: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
 					$con destroy
 					unset con
@@ -164,7 +164,7 @@ namespace eval netdgram {
 			try {
 				$con activate
 			} on error {errmsg options} {
-				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
+				log error "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
 				if {[info object is object $con]} {
 					$con destroy
 					unset con
@@ -236,7 +236,7 @@ namespace eval netdgram {
 						?? {log trivia "Loaded sockopt and configured keepalive and nodelay"}
 					}
 				} on error {errmsg options} {
-					puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
+					log error "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
 					return -options $options $errmsg
 				}
 			} elseif {$create_mode eq "teleport"} {
@@ -320,7 +320,6 @@ namespace eval netdgram {
 		#>>>
 		method is_data_waiting {} {set data_waiting}
 		method teleport thread_id { #<<<
-			puts "[self class] [self] teleporting to $thread_id"
 			chan event $socket readable {}
 			chan event $socket writable {}
 			thread::detach $socket
