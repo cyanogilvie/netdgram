@@ -8,7 +8,7 @@ namespace eval netdgram {
 		mixin netdgram::debug
 
 		constructor {} { #<<<
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 
 			package require unix_sockets
 		}
@@ -22,13 +22,11 @@ namespace eval netdgram {
 			}
 			set path	[dict get $parts path]
 			set flags	[dict get $parts query]
-			return [netdgram::listener::uds new $path $flags]
+			set listen	[netdgram::listener::uds new $path $flags]
 			oo::objdefine $listen forward human_id apply {
-				{human_id} {
-					set human_id
-				}
+				{human_id} {set human_id}
 			} "uri([$uri_obj encoded]) pid([pid])"
-			return $listen
+			set listen
 		}
 
 		#>>>
@@ -42,13 +40,9 @@ namespace eval netdgram {
 				set flags	[dict get $parts query]
 				set socket	[unix_sockets::connect $path]
 
-				set con	[netdgram::connection::uds new $socket $flags]
-				oo::objdefine $con forward human_id apply {
-					{human_id} {
-						set human_id
-					}
-				} "uri([$uri_obj encoded]) pid([pid]) con($con)"
-				return $con
+				set con	[netdgram::connection::uds new new $socket $flags]
+				$con set_human_id "uri([$uri_obj encoded]) pid([pid]) con($con)"
+				set con
 			} on error {errmsg options} {
 				if {[info exists con] && [info object isa object $con]} {
 					$con destroy
@@ -78,7 +72,7 @@ namespace eval netdgram {
 		}
 
 		constructor {path a_flags} { #<<<
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 
 			set flags $a_flags
 			set dir	[file normalize [file dirname $path]]
@@ -111,13 +105,9 @@ namespace eval netdgram {
 		method _accept {socket} { #<<<
 			try {
 				set con		[netdgram::connection::uds new \
-						$socket $flags]
+						new $socket $flags]
 
-				oo::objdefine $con forward human_id apply {
-					{human_id} {
-						set human_id
-					}
-				} "con($con) on [my human_id]"
+				$con set_human_id "con($con) on [my human_id]"
 
 				my accept $con
 			} on error {errmsg options} {
@@ -160,41 +150,64 @@ namespace eval netdgram {
 			mode
 			remaining
 			payload
+			human_id
+
+			teleporting
 		}
 
-		constructor {a_socket a_flags} { #<<<
-			if {[self next] ne {}} {next}
+		constructor {create_mode a_socket a_flags} { #<<<
+			if {[self next] ne ""} next
 
 			namespace path [concat [namespace path] {
 				::oo::Helpers::cflib
 				::tcl::mathop
 			}]
 
-			set socket	$a_socket
-			set data_waiting	0
-			set mode			0
-			set buf				""
-			set payload			""
+			if {$create_mode eq "new"} {
+				set socket	$a_socket
+				set data_waiting	0
+				set mode			0
+				set buf				""
+				set payload			""
+				set remaining		0
 
-			chan configure $socket \
-					-blocking 0 \
-					-buffering full \
-					-translation binary
+				chan configure $socket \
+						-blocking 0 \
+						-buffering none \
+						-translation binary
 
-			#puts "[self] initialized socket to: ($socket)"
+			} elseif {$create_mode eq "teleport"} {
+				lassign $a_socket \
+						socket \
+						data_waiting \
+						buf \
+						mode \
+						remaining \
+						payload \
+						human_id
+				thread::attach $socket
+				if {$data_waiting} {
+					chan event $socket writable [code _notify_writable]
+				}
+			} else {
+				error "Invalid create_mode \"$create_mode\""
+			}
 		}
 
 		#>>>
 		destructor { #<<<
-			if {[info exists socket]} {
-				if {$socket in [chan names]} {
-					close $socket
+			if {![info exists teleporting]} {
+				if {[info exists socket]} {
+					if {$socket in [chan names]} {
+						close $socket
+					}
+					unset socket
 				}
-				unset socket
+
+				my closed
 			}
 
-			my closed
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 		}
 
 		#>>>
@@ -210,10 +223,8 @@ namespace eval netdgram {
 		method send {msg} { #<<<
 			try {
 				chan puts -nonewline $socket "[string length $msg]\n$msg"
-				#puts "writing msg: ($msg) to $socket"
-				chan flush $socket
 			} on error {errmsg options} {
-				puts stderr "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
 				my destroy
 				return
 			}
@@ -222,10 +233,8 @@ namespace eval netdgram {
 		#>>>
 		method data_waiting {newstate} { #<<<
 			if {$newstate == $data_waiting} return
-			set data_waiting	$newstate
-
-			if {$data_waiting} {
-				chan event $socket writable [namespace code {my _notify_writable}]
+			if {[set data_waiting $newstate]} {
+				chan event $socket writable [code _notify_writable]
 				my _notify_writable
 			} else {
 				chan event $socket writable {}
@@ -234,56 +243,78 @@ namespace eval netdgram {
 
 		#>>>
 		method is_data_waiting {} {set data_waiting}
+		method teleport thread_id { #<<<
+			puts "[self class] [self] teleporting to $thread_id"
+			chan event $socket readable {}
+			chan event $socket writable {}
+			thread::detach $socket
+			thread::send $thread_id {package require netdgram::uds}
+			set new	[thread::send $thread_id [list [self class] new teleport [list \
+					$socket \
+					$data_waiting \
+					$buf \
+					$mode \
+					$remaining \
+					$payload \
+					$human_id] -]]
+			unset socket
+			set teleporting	1
+			my destroy
+			set new
+		}
 
+		#>>>
 		method _readable {} { #<<<
-			try {
-				append buf	[chan read $socket]
-			} trap {POSIX EHOSTUNREACH} {errmsg options} {
-				puts stderr "Host unreachable from $cl_ip:$cl_port"
-				tailcall my destroy
-			} trap {POSIX ETIMEDOUT} {errmsg options} {
-				puts stderr "Host timeout from $cl_ip:$cl_port"
-				tailcall my destroy
-			}
-
-			if {[chan eof $socket]} {
-				tailcall my destroy
-			}
-			if {[chan blocked $socket]} return
-
 			while {1} {
-				if {$mode == 0} {
-					if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
-					#set idx	[string first \n $buf]
-					#if {$idx == -1} return
-					#set line	[string range $buf 0 [- $idx 1]]
-					#set datastart	[+ $idx 1]
-					lassign $line remaining
-					set buf		[string range $buf[unset buf] $datastart end]
-					set mode	1
+				try {
+					append buf	[chan read $socket]
+				} trap {POSIX EHOSTUNREACH} {errmsg options} {
+					puts stderr "Host unreachable from $cl_ip:$cl_port"
+					tailcall my destroy
+				} trap {POSIX ETIMEDOUT} {errmsg options} {
+					puts stderr "Host timeout from $cl_ip:$cl_port"
+					tailcall my destroy
 				}
-				if {$mode == 1} {
-					set buflen	[string length $buf]
-					set consume	[tcl::mathfunc::min $buflen $remaining]
-					if {$consume == $buflen} {
-						append payload	$buf
-						set buf			""
-					} else {
-						append payload	[string range $buf 0 [- $consume 1]]
-						set buf			[string range $buf $consume end]
-					}
-					if {[incr remaining -$consume] > 0} return
 
-					try {
-						# TODO: take care of re-entrant issues here, which
-						# occur if the code called here enters vwait, and more
-						# data arrives and wakes up _readable again
-						my received $payload
-					} on error {errmsg options} {
-						puts stderr "Error processing datagram: [dict get $options -errorinfo]"
+				if {[chan eof $socket]} {
+					tailcall my destroy
+				}
+				if {[chan blocked $socket]} return
+
+				while {1} {
+					if {$mode == 0} {
+						if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
+						#set idx	[string first \n $buf]
+						#if {$idx == -1} return
+						#set line	[string range $buf 0 [- $idx 1]]
+						#set datastart	[+ $idx 1]
+						lassign $line remaining
+						set buf		[string range $buf[unset buf] $datastart end]
+						set mode	1
 					}
-					set mode	0
-					set payload	""
+					if {$mode == 1} {
+						set buflen	[string length $buf]
+						set consume	[tcl::mathfunc::min $buflen $remaining]
+						if {$consume == $buflen} {
+							append payload	$buf
+							set buf			""
+						} else {
+							append payload	[string range $buf 0 [- $consume 1]]
+							set buf			[string range $buf $consume end]
+						}
+						if {[incr remaining -$consume] > 0} break
+
+						try {
+							# TODO: take care of re-entrant issues here, which
+							# occur if the code called here enters vwait, and more
+							# data arrives and wakes up _readable again
+							my received $payload
+						} on error {errmsg options} {
+							log error "Error processing datagram: [dict get $options -errorinfo]"
+						}
+						set mode	0
+						set payload	""
+					}
 				}
 			}
 		}
@@ -299,13 +330,14 @@ namespace eval netdgram {
 			try {
 				my writable
 			} on error {errmsg options} {
-				puts stderr "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
 			}
 		}
 
 		#>>>
+		method human_id {} {set human_id}
+		method set_human_id {new_human_id} {set human_id $new_human_id}
 	}
 
 	#>>>
 }
-

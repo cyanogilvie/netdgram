@@ -296,7 +296,7 @@ namespace eval netdgram {
 				#chan flush $socket
 				#?? {log debug "chan flush time: [expr {[clock microseconds] - $before}] microseconds"}
 			} on error {errmsg options} {
-				puts stderr "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
 				my destroy
 				return
 			}
