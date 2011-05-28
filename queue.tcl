@@ -37,7 +37,10 @@ namespace eval netdgram {
 			# days of full frames on a 100Mb network
 			#set target_payload_size		[expr {1447 - 10}]
 			#set target_payload_size			8937
+
 			set target_payload_size			4076
+			#set target_payload_size			131009
+			#set target_payload_size			1048576
 
 			#set target_payload_size	8
 		}
@@ -135,9 +138,9 @@ namespace eval netdgram {
 				set last	[clock microseconds]
 			}
 			if {[info exists next_frag]} {
-				?? {puts "Using next_frag"}
+				?? {log debug "Using next_frag"}
 				if {[dict size $queues] == 0} {
-					?? {puts "next_frag Queues empty, flagging data_waiting 0"}
+					?? {log debug "next_frag Queues empty, flagging data_waiting 0"}
 					$rawcon data_waiting 0
 					#?? {lappend times notify_data_waiting_0  [- [set tmp [clock microseconds]] $last]; set last $tmp}
 				}
@@ -178,7 +181,7 @@ namespace eval netdgram {
 			?? {lappend times update_queues_state  [- [set tmp [clock microseconds]] $last]; set last $tmp}
 			if {!$prequeueing} {
 				if {[dict size $queues] == 0} {
-					?? {puts "Queues empty, flagging data_waiting 0"}
+					?? {log debug "Queues empty, flagging data_waiting 0"}
 					$rawcon data_waiting 0
 					#?? {lappend times notify_data_waiting_0  [- [set tmp [clock microseconds]] $last]; set last $tmp}
 				}
@@ -279,10 +282,10 @@ namespace eval netdgram {
 			if {$prequeueing} {
 				if {[dict size $queues] > 0} {
 					# Prepare the next fragment
-					?? {puts "queue size: [dict size $queues], preparing next_frag"}
+					?? {log debug "queue size: [dict size $queues], preparing next_frag"}
 					set qs_was	[dict size $queues]
 					set next_frag	[my dequeue $target_payload_size]
-					?? {puts "after next_frag prep, queue size: [dict size $queues]"}
+					?? {log debug "after next_frag prep, queue size: [dict size $queues]"}
 				} else {
 					$rawcon data_waiting 0
 				}
