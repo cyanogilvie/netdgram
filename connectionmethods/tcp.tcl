@@ -9,6 +9,11 @@ namespace eval netdgram {
 		superclass netdgram::connectionmethod
 		mixin netdgram::debug
 
+		variable {*}{
+			connected_vwait
+			connected_vwait_seq
+		}
+
 		method listen {uri_obj} { #<<<
 			set parts	[$uri_obj as_dict]
 			set params	[split [dict get $parts authority] :]
@@ -76,7 +81,73 @@ namespace eval netdgram {
 					}
 				}
 				set flags	[dict get $parts query]
-				set socket	[socket $host $port]
+				if {[dict exists $flags timeout] && [dict get $flags timeout] != 0} {
+					set socket	[socket -async $host $port]
+					if {[info coroutine] ne ""} {
+						chan event $socket writable [list apply {
+							{coro args} {$coro {*}$args}
+						} [info coroutine] _netdgram_connected]
+						set afterid	[after [dict get $flags timeout] [list apply {
+							{coro args} {$coro {*}$args}
+						} [info coroutine] _netdgram_timeout]]
+						while {1} {
+							set rest	[lassign [yield] wakeup_reason]
+							switch -- $wakeup_reason {
+								_netdgram_connected {
+									try {
+										chan puts $socket " "
+										chan flush $socket
+									} trap {POSIX EPIPE} {} {
+										throw {POSIX ECONNREFUSED} "connection refused"
+									}
+									after cancel $afterid; set afterid	""
+									chan event $socket writable {}
+									break
+								}
+
+								_netdgram_timeout {
+									chan event $socket writable {}
+									chan close $socket
+									throw timeout "Timeout waiting for netdgram connection to [$uri_obj encoded]"
+								}
+
+								default {
+									log error "Unexpected wakeup reason while waiting for netdgram connection to [$uri_obj encoded]"
+								}
+							}
+						}
+					} else {
+						set myseq	[incr connected_vwait_seq]
+						chan event $socket writable [list set [namespace which -variable connected_vwait]($myseq) _netdgram_connected]
+						set afterid	[after [dict get $flags timeout] [list set [namespace which -variable connected_vwait]($myseq) _netdgram_timeout]]
+						vwait [namespace which -variable connected_vwait]($myseq)
+						after cancel $afterid; set afterid	""
+						set res	$connected_vwait($myseq)
+						array unset connected_vwait $myseq
+						switch -- $res {
+							_netdgram_connected {
+								try {
+									chan puts $socket " "
+									chan flush $socket
+								} trap {POSIX EPIPE} {} {
+									throw {POSIX ECONNREFUSED} "connection refused"
+								}
+								chan event $socket writable {}
+							}
+							_netdgram_timeout {
+								chan event $socket writable {}
+								chan close $socket
+								throw timeout "Timeout waiting for netdgram connection to [$uri_obj encoded]"
+							}
+							default {
+								chan close $socket
+								error "Unexpected outcome waiting for netdgram connection to [$uri_obj encoded]: \"$res\""
+							}
+						}
+					}
+				} else {
+					set socket	[socket $host $port]
+				}
 
 				set con	[netdgram::connection::tcp new new $socket $host $port $flags]
 				$con set_human_id "uri([$uri_obj encoded]) pid([pid]) con($con)"
