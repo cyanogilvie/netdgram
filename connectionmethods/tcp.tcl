@@ -95,7 +95,7 @@ namespace eval netdgram {
 							switch -- $wakeup_reason {
 								_netdgram_connected {
 									try {
-										chan puts $socket " "
+										chan puts -nonewline $socket "0\n"
 										chan flush $socket
 									} trap {POSIX EPIPE} {} {
 										throw {POSIX ECONNREFUSED} "connection refused"
@@ -127,7 +127,7 @@ namespace eval netdgram {
 						switch -- $res {
 							_netdgram_connected {
 								try {
-									chan puts $socket " "
+									chan puts -nonewline $socket "0\n"
 									chan flush $socket
 								} trap {POSIX EPIPE} {} {
 									throw {POSIX ECONNREFUSED} "connection refused"
@@ -418,7 +418,7 @@ namespace eval netdgram {
 				try {
 					chan read $socket
 				} on ok {chunk} {
-					?? {log trivia "after chan read, chunk: [string length $chunk]"}
+					?? {log trivia "after chan read, chunk: [string length $chunk] [regexp -all -inline .. [binary encode hex [string range $chunk 0 5]]]"}
 					append buf	$chunk
 				} trap {POSIX EHOSTUNREACH} {errmsg options} {
 					log error "Host unreachable from $cl_ip:$cl_port"
@@ -446,6 +446,7 @@ namespace eval netdgram {
 						#set line	[string range $buf 0 [- $idx 1]]
 						#set datastart	[+ $idx 1]
 						lassign $line remaining
+						?? {log debug "line: ($line), remaining: ($remaining)"}
 						set buf		[string range $buf[unset buf] $datastart end]
 						set mode	1
 					}
@@ -466,7 +467,9 @@ namespace eval netdgram {
 							# occur if the code called here enters vwait, and more
 							# data arrives and wakes up _readable again
 							?? {log trivia "dispatching payload of [string length $payload] bytes"}
-							my received $payload
+							if {$payload ne ""} {
+								my received $payload
+							}
 						} on error {errmsg options} {
 							log error "Error processing datagram: [dict get $options -errorinfo]"
 						}
