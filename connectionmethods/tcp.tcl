@@ -262,12 +262,15 @@ namespace eval netdgram {
 			remaining
 			payload
 			human_id
+			flags
 
 			teleporting
 		}
 
 		constructor {create_mode a_socket a_cl_ip a_cl_port a_flags} { #<<<
 			if {[self next] ne ""} next
+
+			set flags	$a_flags
 
 			namespace path [concat [namespace path] {
 				::oo::Helpers::cflib
@@ -362,6 +365,11 @@ namespace eval netdgram {
 			try {
 				?? {log trivia "Sending message [self]"}
 				chan puts -nonewline $socket "[string length $msg]\n$msg"
+				?? {
+					if {[dict exists $flags tap]} {
+						my _tap tx "[string length $msg]\n$msg"
+					}
+				}
 				#puts "writing msg: ($msg) to $socket"
 				#?? {set before [clock microseconds]}
 				#chan flush $socket
@@ -420,6 +428,11 @@ namespace eval netdgram {
 				} on ok {chunk} {
 					?? {log trivia "after chan read, chunk: [string length $chunk] [regexp -all -inline .. [binary encode hex [string range $chunk 0 5]]]"}
 					append buf	$chunk
+					?? {
+						if {[dict exists $flags tap]} {
+							my _tap rx $chunk
+						}
+					}
 				} trap {POSIX EHOSTUNREACH} {errmsg options} {
 					log error "Host unreachable from $cl_ip:$cl_port"
 					tailcall my destroy
@@ -440,11 +453,13 @@ namespace eval netdgram {
 
 				while {1} {
 					if {$mode == 0} {
-						if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
-						#set idx	[string first \n $buf]
-						#if {$idx == -1} return
-						#set line	[string range $buf 0 [- $idx 1]]
-						#set datastart	[+ $idx 1]
+						# The scan method fails badly on a short read that cuts
+						# the remaining length number in half
+						#if {[scan $buf "%\[^\n\]\n%n" line datastart] == -1} return
+						set idx	[string first \n $buf]
+						if {$idx == -1} return
+						set line	[string range $buf 0 [- $idx 1]]
+						set datastart	[+ $idx 1]
 						lassign $line remaining
 						?? {log debug "line: ($line), remaining: ($remaining)"}
 						set buf		[string range $buf[unset buf] $datastart end]
@@ -508,6 +523,17 @@ namespace eval netdgram {
 		#>>>
 		method human_id {} {set human_id}
 		method set_human_id {new_human_id} {set human_id $new_human_id}
+
+		method _tap {dir data} { #<<<
+			set h	[open [dict get $flags tap] a]
+			try {
+				chan puts $h [list $dir $data]
+			} finally {
+				chan close $h
+			}
+		}
+
+		#>>>
 	}
 
 	#>>>
