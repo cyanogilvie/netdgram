@@ -219,6 +219,8 @@ namespace eval netdgram {
 				$con set_human_id "con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
 
 				my accept $con $cl_ip $cl_port
+			} trap dont_activate {} {
+				return
 			} on error {errmsg options} {
 				log error "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
@@ -325,6 +327,7 @@ namespace eval netdgram {
 						payload \
 						human_id
 				thread::attach $socket
+				?? {log debug "Thread [thread::id] attaching to teleported socket [thread::id]"}
 				if {$data_waiting} {
 					chan event $socket writable [code _notify_writable]
 				}
@@ -356,7 +359,7 @@ namespace eval netdgram {
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
-			?? {log debug "Activating socket [self]"}
+			?? {log debug "Activating socket ($socket) [self] in thread [thread::id]"}
 			chan event $socket readable [code _readable]
 		}
 
@@ -399,6 +402,7 @@ namespace eval netdgram {
 		#>>>
 		method is_data_waiting {} {set data_waiting}
 		method teleport thread_id { #<<<
+			?? {log debug "Teleporting to thread $thread_id (from [thread::id])"}
 			chan event $socket readable {}
 			chan event $socket writable {}
 			thread::detach $socket
@@ -421,7 +425,7 @@ namespace eval netdgram {
 
 		#>>>
 		method _readable {} { #<<<
-			?? {log trivia "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
+			?? {log trivia "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode, thread: [thread::id]"}
 			while {1} {
 				try {
 					chan read $socket

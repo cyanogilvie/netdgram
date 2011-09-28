@@ -144,6 +144,8 @@ namespace eval netdgram {
 					$con destroy
 					unset con
 				}
+			} trap dont_activate {} {
+				return
 			} on error {errmsg options} {
 				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
 				if {[info object is object $con]} {

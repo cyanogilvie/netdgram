@@ -110,6 +110,8 @@ namespace eval netdgram {
 				$con set_human_id "con($con) on [my human_id]"
 
 				my accept $con
+			} trap dont_activate {} {
+				return
 			} on error {errmsg options} {
 				log error "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
