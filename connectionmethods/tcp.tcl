@@ -412,7 +412,7 @@ namespace eval netdgram {
 					$mode \
 					$remaining \
 					$payload \
-					$human_id] - - -]]
+					$human_id] - - $flags]]
 			unset socket
 			set teleporting	1
 			my destroy
@@ -461,7 +461,6 @@ namespace eval netdgram {
 						set line	[string range $buf 0 [- $idx 1]]
 						set datastart	[+ $idx 1]
 						lassign $line remaining
-						?? {log debug "line: ($line), remaining: ($remaining)"}
 						set buf		[string range $buf[unset buf] $datastart end]
 						set mode	1
 					}

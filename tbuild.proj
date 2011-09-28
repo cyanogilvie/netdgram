@@ -1,4 +1,4 @@
-set version	0.9.2
+set version	0.9.3
 
 tm "netdgram" {
 	summary "Modular network datagram package"
@@ -21,7 +21,7 @@ tm "netdgram" {
 
 	requires {
 		cflib
-		sop
+		{sop 1.5.1}
 	}
 
 	files {
