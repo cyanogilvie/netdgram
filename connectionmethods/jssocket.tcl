@@ -124,6 +124,8 @@ namespace eval netdgram {
 						"con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
 
 				#my accept $con $cl_ip $cl_port
+			} trap dont_activate {} {
+				return
 			} on error {errmsg options} {
 				puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
@@ -144,8 +146,6 @@ namespace eval netdgram {
 					$con destroy
 					unset con
 				}
-			} trap dont_activate {} {
-				return
 			} on error {errmsg options} {
 				puts stderr "Unexpected error activating $con: $errmsg\n[dict get $options -errorinfo]"
 				if {[info object is object $con]} {
