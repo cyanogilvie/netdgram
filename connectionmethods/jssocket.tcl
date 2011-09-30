@@ -115,7 +115,7 @@ namespace eval netdgram {
 		#>>>
 
 		method _accept {socket cl_ip cl_port} { #<<<
-			puts stderr "Accepting socket ($socket) from ($cl_ip:$cl_port)"
+			log notice "Accepting socket ($socket) from ($cl_ip:$cl_port)"
 			try {
 				set con		[netdgram::connection::jssocket new \
 						$socket $cl_ip $cl_port $flags [code accept]]
@@ -124,8 +124,6 @@ namespace eval netdgram {
 						"con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
 
 				#my accept $con $cl_ip $cl_port
-			} trap dont_activate {} {
-				return
 			} on error {errmsg options} {
 				puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
 				if {[info exists con] && [info object is object $con]} {
@@ -171,19 +169,30 @@ namespace eval netdgram {
 			data_waiting
 			accepted
 			onaccept
+			buf
+			flags
 		}
 
 		constructor {a_socket a_cl_ip a_cl_port a_flags a_onaccept} { #<<<
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 
 			namespace path [concat [namespace path] {
-				::oo::Helpers::cflib
 				::tcl::mathop
+				::oo::Helpers::cflib
 			}]
 
-			set socket	$a_socket
-			set cl_ip	$a_cl_ip
-			set cl_port	$a_cl_port
+			set socket			$a_socket
+
+			chan configure $socket \
+					-blocking		0 \
+					-translation	binary \
+					-encoding		binary \
+					-buffering		none
+
+			set cl_ip			$a_cl_ip
+			set cl_port			$a_cl_port
+			set flags			$a_flags
+			set buf				""
 			set data_waiting	0
 			set accepted		0
 			set onaccept		$a_onaccept
@@ -191,7 +200,7 @@ namespace eval netdgram {
 				try {
 					package require sockopt
 				} on error {errmsg options} {
-					#puts stderr "Could not load sockopts: $errmsg"
+					?? {log warning "Could not load sockopts: $errmsg"}
 				} on ok {} {
 					sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
 					sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
@@ -200,46 +209,58 @@ namespace eval netdgram {
 					sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
 				}
 			} on error {errmsg options} {
-				puts stderr "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"
+				?? {log error "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"}
 				return -options $options $errmsg
 			}
 		}
 
 		#>>>
 		destructor { #<<<
-			#puts stderr "Destroying [self]"
 			if {[info exists socket] && $socket in [chan names]} {
-				#puts stderr "closing socket ($socket) in destructor"
 				chan close $socket
 				unset socket
 			}
 
 			my closed
-			if {[self next] ne {}} {next}
+			if {[self next] ne ""} next
 		}
 
 		#>>>
 
 		method activate {} { #<<<
-			set coro	"::consumer_[string map {:: _} [self]]"
-			coroutine $coro my _consumer
 			if {![info exists socket] || $socket ni [chan names]} {
-				throw {socket_collapsed} "Socket collapsed"
+				throw socket_collapsed "Socket collapsed"
 			}
-			chan event $socket readable [list $coro]
+			?? {log debug "Activating socket ($socket) [self] in thread [thread::id], accepted? $accepted"}
+			if {!($accepted)} {
+				chan event $socket readable [code _readable_preaccepted]
+			} else {
+				chan event $socket readable [code _readable]
+			}
+
+			if {$data_waiting} {
+				#my variable writable_kickoff
+				#set writable_kickoff	[clock microseconds]
+				chan event $socket writable [code _notify_writable]
+			} else {
+				chan event $socket writable {}
+			}
 		}
 
 		#>>>
-		method send {msg} { #<<<
+		method send msg { #<<<
 			try {
-				chan configure $socket \
-						-buffering full
-				set msg	[binary encode base64 $msg]
+				set msg	[binary encode base64 $msg[unset msg]]
 				append msg "\x0"
 				chan puts -nonewline $socket $msg
+				?? {
+					if {[dict exists $flags tap]} {
+						my _tap rx $msg
+					}
+				}
 				#puts stderr "Sending null terminated packet: ($msg)"
 				#puts "writing msg: ($msg) to $socket"
-				chan flush $socket
+				#chan flush $socket
 			} on error {errmsg options} {
 				puts stderr "Error writing message to socket: $errmsg\n[dict get $options -errorinfo]"
 				my destroy
@@ -263,101 +284,132 @@ namespace eval netdgram {
 
 		#>>>
 
-		method _consumer {} { #<<<
-			try {
-				chan configure $socket \
-						-blocking		0 \
-						-translation	binary \
-						-encoding		binary \
-						-buffering		none
+		method _readable_preaccepted {} { #<<<
+			?? {log trivia "socket $socket _readable_preaccepted"}
+			while {1} {
+				try {
+					chan read $socket
+				} on ok chunk {
+					append buf $chunk
+					?? {
+						if {[dict exists $flags tap]} {
+							my _tap rx $chunk
+						}
+					}
+				} trap {POSIX EHOSTUNREACH} {errmsg options} {
+					log error "Host unreachable from $cl_ip:$cl_port"
+					tailcall my destroy
+				} trap {POSIX ETIMEDOUT} {errmsg options} {
+					log error "Host timeout from $cl_ip:$cl_port"
+					tailcall my destroy
+				}
 
-				set buf	""
+				if {[chan eof $socket]} {
+					?? {log trivia "socket closed [self]"}
+					tailcall my destroy
+				}
+				if {[string length $chunk] == 0} return
+				if {[chan blocked $socket]} {
+					?? {log trivia "Chan blocked ($socket)"}
+					return
+				}
+				?? {log trivia "Processing [string length $buf] bytes of buf"}
+				?? {log trivia [regexp -all -inline .. [binary encode hex $buf]]}
+
 				while {1} {
-					set chunk	[chan read $socket]
-					if {[chan eof $socket]} {throw {close} ""}
-					set chunklen	[string length $chunk]
-					if {$chunklen == 0} {
-						yield
-						continue
+					set idx	[string first "\x0" $buf]
+					?? {log trivia "idx: ($idx)"}
+					if {$idx == -1} return
+
+					set packet	[string range $buf 0 [- $idx 1]]
+					?? {log trivia "Got packet: ($packet)"}
+					set buf		[string range $buf[unset buf] [+ $idx 1] end]
+
+					if {[string trim $packet] eq "<policy-file-request/>"} {
+						?? {log debug "[self] Saw policy request, sending policy"}
+						my _send_policy
+						chan event $socket readable {}
+						chan event $socket writable {}
+						tailcall my destroy
 					}
 
-					append buf	$chunk
-					set buf	[my _process_packets $buf]
+					try {
+						?? {log debug "Dispatching deferred accept callback"}
+						chan event $socket readable {}
+						chan event $socket writable {}
+						uplevel #0 $onaccept [self] $cl_ip $cl_port
+					} trap dont_activate {} {
+						?? {log debug "Got signal not to activate [self] yet"}
+						set accepted	1
+						return
+					} on error {errmsg options} {
+						log error "Error in accept: $errmsg\n[dict get $options -errorinfo]"
+						tailcall my destroy
+					} on ok {} {
+						?? {log debug "[self] feels accepted"}
+						set accepted	1
+						my activate
+					}
 				}
-			} trap {close} {res options} {
-				# Nothing to do.  destructor takes care of it
-				#puts stderr "Closing [self] (by falling through to destructor)"
-			} on error {errmsg options} {
-				puts stderr "Unhandled error in consumer: $errmsg"
-				array set e $options
-				parray e
-				puts stderr "[dict get $options -errorinfo]"
-			} finally {
-				#puts stderr "in finally clause (about to call my destroy)"
-				my destroy
 			}
 		}
 
 		#>>>
-		method _process_packets {buf} { #<<<
-			set parts		[split $buf "\x0"]
-			foreach part [lrange $parts 0 end-1] {
-				if {[string trim $part] eq "<policy-file-request/>"} {
-					puts stderr "[self] Saw policy request, sending policy"
-					my _send_policy
-					chan event $socket readable [list apply {
-						{oldself oldsocket} {
-							puts stderr "Got read for undead socket ($oldself) old socket: $oldsocket [expr {$oldsocket in [chan names] ? "exists" : "does not exist"}]"
-							if {$oldsocket in [chan names]} {
-								if {[chan eof $oldsocket]} {
-									puts stderr "\tEOF"
-									chan close $oldsocket
-								} else {
-									set dat	[chan read $oldsocket]
-									puts stderr "\tGot [string length $dat] bytes:\n$dat"
-								}
-							}
+		method _readable {} { #<<<
+			?? {log trivia "socket $socket _readable"}
+			while {1} {
+				try {
+					chan read $socket
+				} on ok chunk {
+					append buf $chunk
+					?? {
+						if {[dict exists $flags tap]} {
+							my _tap rx $chunk
 						}
-					} [self] $socket]
-					throw {close} ""
-				}
-				if {!($accepted)} {
-					try {
-						#puts stderr "[self] seeking acceptance"
-						uplevel #0 $onaccept [self] $cl_ip $cl_port
-					} on error {errmsg options} {
-						puts "Error in accept: $errmsg\n[dict get $options -errorinfo]"
-						my destroy
-						return
-					} on ok {} {
-						#puts stderr "[self] feels accepted"
-						set accepted	1
 					}
+				} trap {POSIX EHOSTUNREACH} {errmsg options} {
+					log error "Host unreachable from $cl_ip:$cl_port"
+					tailcall my destroy
+				} trap {POSIX ETIMEDOUT} {errmsg options} {
+					log error "Host timeout from $cl_ip:$cl_port"
+					tailcall my destroy
 				}
-				if {$part eq "ready"} {continue}
 
-				# Prevent message handling code higher up the stack
-				# from yielding our consumer coroutine
-				# Needs the "after idle" to avoid trying to re-enter this
-				# coroutine if the callback enters vwait before returning,
-				# and another packet arrives that tries to wake up this
-				# consumer coro again
-				after idle [list coroutine coro_received_[incr ::coro_seq] \
-						{*}[code received [binary decode base64 $part]]]
+				if {[chan eof $socket]} {
+					?? {log trivia "socket closed [self]"}
+					tailcall my destroy
+				}
+				if {[string length $chunk] == 0} return
+				if {[chan blocked $socket]} return
+
+				while {1} {
+					set idx	[string first \x0 $buf]
+					if {$idx == -1} return
+
+					set epacket	[string range $buf 0 [- $idx 1]]
+					set buf		[string range $buf[unset buf] [+ $idx 1] end]
+					if {$epacket eq "ready"} continue
+					my received [binary decode base64 $epacket]
+				}
 			}
-			lindex $parts end
 		}
 
 		#>>>
 		method _send_policy {} { #<<<
 			#puts stderr "Sending policy"
-			chan puts $socket [string trim {
+			set policy	[string trim {
 <?xml version="1.0"?>
 <!DOCTYPE cross-domain-policy SYSTEM "http://www.macromedia.com/xml/dtds/cross-domain-policy-dtd">
 <cross-domain-policy>
 	<allow-access-from domain="*" to-ports="*" />
 </cross-domain-policy>
 			}]
+			chan puts $socket $policy
+			?? {
+				if {[dict exists $flags tap]} {
+					my _tap tx $policy
+				}
+			}
 		}
 
 		#>>>
@@ -372,6 +424,16 @@ namespace eval netdgram {
 				my writable
 			} on error {errmsg options} {
 				puts stderr "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
+			}
+		}
+
+		#>>>
+		method _tap {dir data} { #<<<
+			set h	[open [dict get $flags tap] a]
+			try {
+				chan puts $h [list $dir $data]
+			} finally {
+				chan close $h
 			}
 		}
 
