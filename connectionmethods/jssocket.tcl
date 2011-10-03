@@ -52,7 +52,7 @@ namespace eval netdgram {
 				set flags	[dict get $parts query]
 				set socket	[socket $host $port]
 
-				set con	[netdgram::connection::jssocket new $socket $host $port $flags]
+				set con	[netdgram::connection::jssocket new new $socket $host $port $flags]
 				oo::objdefine $con forward human_id apply {
 					{human_id} {
 						set human_id
@@ -118,7 +118,7 @@ namespace eval netdgram {
 			log notice "Accepting socket ($socket) from ($cl_ip:$cl_port)"
 			try {
 				set con		[netdgram::connection::jssocket new \
-						$socket $cl_ip $cl_port $flags [code accept]]
+						new $socket $cl_ip $cl_port $flags [code accept]]
 
 				oo::objdefine $con forward human_id return \
 						"con($con) fromaddr($cl_ip:$cl_port) on [my human_id]"
@@ -171,9 +171,11 @@ namespace eval netdgram {
 			onaccept
 			buf
 			flags
+
+			teleporting
 		}
 
-		constructor {a_socket a_cl_ip a_cl_port a_flags a_onaccept} { #<<<
+		constructor {create_mode a_socket a_cl_ip a_cl_port a_flags a_onaccept} { #<<<
 			if {[self next] ne ""} next
 
 			namespace path [concat [namespace path] {
@@ -181,47 +183,62 @@ namespace eval netdgram {
 				::oo::Helpers::cflib
 			}]
 
-			set socket			$a_socket
-
-			chan configure $socket \
-					-blocking		0 \
-					-translation	binary \
-					-encoding		binary \
-					-buffering		none
-
 			set cl_ip			$a_cl_ip
 			set cl_port			$a_cl_port
 			set flags			$a_flags
-			set buf				""
-			set data_waiting	0
-			set accepted		0
-			set onaccept		$a_onaccept
-			try {
+
+			if {$create_mode eq "new"} {
+				set socket			$a_socket
+
+				chan configure $socket \
+						-blocking		0 \
+						-translation	binary \
+						-encoding		binary \
+						-buffering		none
+
+				set buf				""
+				set data_waiting	0
+				set accepted		0
+				set onaccept		$a_onaccept
 				try {
-					package require sockopt
+					try {
+						package require sockopt
+					} on error {errmsg options} {
+						?? {log warning "Could not load sockopts: $errmsg"}
+					} on ok {} {
+						sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
+						sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
+						sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
+					}
 				} on error {errmsg options} {
-					?? {log warning "Could not load sockopts: $errmsg"}
-				} on ok {} {
-					sockopt::setsockopt $socket SOL_SOCKET SO_KEEPALIVE 1
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPIDLE 120
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPCNT 2
-					sockopt::setsockopt $socket SOL_TCP TCP_KEEPINTVL 20
-					sockopt::setsockopt $socket SOL_TCP TCP_NODELAY 1
+					?? {log error "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"}
+					return -options $options $errmsg
 				}
-			} on error {errmsg options} {
-				?? {log error "Error initializing socket: $errmsg\n[dict get $options -errorinfo]"}
-				return -options $options $errmsg
+			} elseif {$create_mode eq "teleport"} {
+				my _restore_state $a_socket
+				thread::attach $socket
+				?? {log debug "Thread [thread::id] attaching to teleported socket $socket"}
+				if {$data_waiting} {
+					chan event $socket writable [code _notify_writable]
+				}
+			} else {
+				error "Invalid create_mode \"$create_mode\""
 			}
 		}
 
 		#>>>
 		destructor { #<<<
-			if {[info exists socket] && $socket in [chan names]} {
-				chan close $socket
-				unset socket
+			if {![info exists teleporting]} {
+				if {[info exists socket] && $socket in [chan names]} {
+					chan close $socket
+					unset socket
+				}
+
+				my closed
 			}
 
-			my closed
 			if {[self next] ne ""} next
 		}
 
@@ -283,7 +300,35 @@ namespace eval netdgram {
 		}
 
 		#>>>
+		method teleport thread_id { #<<<
+			?? {log debug "Teleporting to thread $thread_id (from [thread::id])"}
+			if {!($accepted)} {
+				log warning "Teleporting a not-yet-accepted jssocket connection.  This will most likely fail"
+			}
+			chan event $socket readable {}
+			chan event $socket writable {}
+			thread::detach $socket
+			thread::send $thread_id {package require netdgram::jssocket}
+			set new	[thread::send $thread_id [list [self class] new teleport [my _save_state] $cl_ip $cl_port $flags $onaccept]]
+			unset socket
+			set teleporting	1
+			my destroy
+			set new
+		}
 
+		#>>>
+
+		method _save_state {} { #<<<
+			list $socket $data_waiting $accepted $buf
+		}
+
+		#>>>
+		method _restore_state serialized { #<<<
+			lassign $serialized socket data_waiting accepted buf
+			?? {log trivia "Restoring state from ($serialized)"}
+		}
+
+		#>>>
 		method _readable_preaccepted {} { #<<<
 			?? {log trivia "socket $socket _readable_preaccepted"}
 			while {1} {

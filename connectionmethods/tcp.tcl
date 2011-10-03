@@ -327,7 +327,7 @@ namespace eval netdgram {
 						payload \
 						human_id
 				thread::attach $socket
-				?? {log debug "Thread [thread::id] attaching to teleported socket [thread::id]"}
+				?? {log debug "Thread [thread::id] attaching to teleported socket $socket"}
 				if {$data_waiting} {
 					chan event $socket writable [code _notify_writable]
 				}
