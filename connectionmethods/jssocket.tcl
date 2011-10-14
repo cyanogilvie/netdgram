@@ -52,7 +52,7 @@ namespace eval netdgram {
 				set flags	[dict get $parts query]
 				set socket	[socket $host $port]
 
-				set con	[netdgram::connection::jssocket new new $socket $host $port $flags]
+				set con	[netdgram::connection::jssocket new new $socket $host $port $flags {}]
 				oo::objdefine $con forward human_id apply {
 					{human_id} {
 						set human_id
@@ -249,10 +249,12 @@ namespace eval netdgram {
 				throw socket_collapsed "Socket collapsed"
 			}
 			?? {log debug "Activating socket ($socket) [self] in thread [thread::id], accepted? $accepted"}
-			if {!($accepted)} {
+			if {!($accepted) && $onaccept ne {}} {
 				chan event $socket readable [code _readable_preaccepted]
 			} else {
 				chan event $socket readable [code _readable]
+				?? {log trivia "Forcing _process_buf from activate"}
+				my _process_buf		;# DEBUG
 			}
 
 			if {$data_waiting} {
@@ -267,6 +269,7 @@ namespace eval netdgram {
 		#>>>
 		method send msg { #<<<
 			try {
+				?? {log trivia "Sending msg ($msg)"}
 				set msg	[binary encode base64 $msg[unset msg]]
 				append msg "\x0"
 				chan puts -nonewline $socket $msg
@@ -368,7 +371,6 @@ namespace eval netdgram {
 
 					set packet	[string range $buf 0 [- $idx 1]]
 					?? {log trivia "Got packet: ($packet)"}
-					set buf		[string range $buf[unset buf] [+ $idx 1] end]
 
 					if {[string trim $packet] eq "<policy-file-request/>"} {
 						?? {log debug "[self] Saw policy request, sending policy"}
@@ -395,6 +397,7 @@ namespace eval netdgram {
 						set accepted	1
 						my activate
 					}
+					#set buf		[string range $buf[unset buf] [+ $idx 1] end]
 				}
 			}
 		}
@@ -406,6 +409,7 @@ namespace eval netdgram {
 				try {
 					chan read $socket
 				} on ok chunk {
+					?? {log trivia "_readable read chunk: ($chunk)"}
 					append buf $chunk
 					?? {
 						if {[dict exists $flags tap]} {
@@ -427,15 +431,23 @@ namespace eval netdgram {
 				if {[string length $chunk] == 0} return
 				if {[chan blocked $socket]} return
 
-				while {1} {
-					set idx	[string first \x0 $buf]
-					if {$idx == -1} return
+				my _process_buf
+			}
+		}
 
-					set epacket	[string range $buf 0 [- $idx 1]]
-					set buf		[string range $buf[unset buf] [+ $idx 1] end]
-					if {$epacket eq "ready"} continue
-					my received [binary decode base64 $epacket]
-				}
+		#>>>
+		method _process_buf {} { #<<<
+			?? {log trivia "Called _process_buf ([string length $buf] bytes in buf)"}
+			while {1} {
+				set idx	[string first \x0 $buf]
+				?? {log trivia "idx: $idx from [regexp -all -inline .. [binary encode hex $buf]]"}
+				if {$idx == -1} return
+
+				set epacket	[string range $buf 0 [- $idx 1]]
+				set buf		[string range $buf[unset buf] [+ $idx 1] end]
+				if {$epacket eq "ready"} continue
+				?? {log trivia "Calling received"}
+				my received [binary decode base64 $epacket]
 			}
 		}
 
@@ -468,7 +480,7 @@ namespace eval netdgram {
 			try {
 				my writable
 			} on error {errmsg options} {
-				puts stderr "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
+				log error "Error in writable handler: $errmsg\n[dict get $options -errorinfo]"
 			}
 		}
 
