@@ -91,6 +91,7 @@ namespace eval netdgram {
 			set emsg		[encoding convertto utf-8 $msg]
 			if {
 				[dict size $queues] == 0 &&
+				![info exists next_frag] &&
 				[string length $emsg] <= $target_payload_size &&
 				[my shortcut_ok {*}$args]
 			} {

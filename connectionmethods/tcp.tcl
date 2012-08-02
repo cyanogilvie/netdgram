@@ -339,7 +339,14 @@ namespace eval netdgram {
 		#>>>
 		destructor { #<<<
 			if {![info exists teleporting]} {
-				?? {log debug "tcp connection handler dieing [self]"}
+				?? {
+					log debug "tcp connection handler dieing [self]"
+					set frames	{}
+					for {set i [expr {[info frame]-2}]} {$i > 1} {incr i -1} {
+						lappend frames	[info frame $i]
+					}
+					log debug "frames:\n-*- [join $frames "\n-*- "]"
+				}
 				if {[info exists socket]} {
 					if {$socket in [chan names]} {
 						close $socket
@@ -359,7 +366,7 @@ namespace eval netdgram {
 			if {![info exists socket] || $socket ni [chan names]} {
 				throw {socket_collapsed} "Socket collapsed"
 			}
-			?? {log debug "Activating socket ($socket) [self] in thread [thread::id]"}
+			?? {log debug "Activating socket ($socket) [self]"}
 			chan event $socket readable [code _readable]
 		}
 
@@ -425,7 +432,7 @@ namespace eval netdgram {
 
 		#>>>
 		method _readable {} { #<<<
-			?? {log trivia "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode, thread: [thread::id]"}
+			?? {log trivia "readable [self], sizes buf: [string length $buf], payload: [string length $payload], mode: $mode"}
 			while {1} {
 				try {
 					chan read $socket

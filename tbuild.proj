@@ -1,4 +1,4 @@
-set version	0.9.8
+set version	0.9.10
 
 tm "netdgram" {
 	summary "Modular network datagram package"
