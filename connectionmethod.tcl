@@ -2,8 +2,6 @@
 
 # Connection method plugins must implement this API
 
-package require TclOO 0.6
-
 namespace eval netdgram {
 	namespace path ::oo
 
