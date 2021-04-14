@@ -452,14 +452,9 @@ namespace eval netdgram {
 					tailcall my destroy
 				}
 
-				if {[chan eof $socket]} {
+				if {[chan eof $socket] && $chunk eq ""} {
 					?? {log trivia "socket closed [self]"}
 					tailcall my destroy
-				}
-				if {[string length $chunk] == 0} return
-				if {[chan blocked $socket]} {
-					?? {log trivia "socket blocked, returning [self]"}
-					return
 				}
 
 				while {1} {

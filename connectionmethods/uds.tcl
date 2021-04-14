@@ -268,7 +268,9 @@ namespace eval netdgram {
 		method _readable {} { #<<<
 			while {1} {
 				try {
-					append buf	[chan read $socket]
+					chan read $socket
+				} on ok chunk {
+					append buf	$chunk
 				} trap {POSIX EHOSTUNREACH} {errmsg options} {
 					log error "Host unreachable"
 					tailcall my destroy
@@ -277,10 +279,9 @@ namespace eval netdgram {
 					tailcall my destroy
 				}
 
-				if {[chan eof $socket]} {
+				if {[chan eof $socket] && $chunk eq ""} {
 					tailcall my destroy
 				}
-				if {[chan blocked $socket]} return
 
 				while {1} {
 					if {$mode == 0} {
