@@ -90,6 +90,11 @@ namespace eval netdgram {
 	class create connection { #<<<
 		mixin netdgram::debug
 
+		constructor {} {
+			if {[llength [info commands log]] == 0} {proc log {lvl msg} {puts stderr $msg}}
+			if {[self next] ne ""} next
+		}
+
 		# Forward / override these to add high level behaviour
 		method human_id {} {return "not set: [self]"}
 		method received {msg} {}
