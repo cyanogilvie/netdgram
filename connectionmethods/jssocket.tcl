@@ -193,7 +193,6 @@ namespace eval netdgram {
 				chan configure $socket \
 						-blocking		0 \
 						-translation	binary \
-						-encoding		binary \
 						-buffering		none
 
 				set buf				""
